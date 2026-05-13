@@ -18,6 +18,7 @@ BASE_DIR = Path(__file__).resolve().parent
 CACHE_PATH = Path(getenv("CACHE_PATH", "") or BASE_DIR / "dashboard_cache.json")
 APP_USERNAME = getenv("APP_USERNAME", "").strip()
 APP_PASSWORD = getenv("APP_PASSWORD", "").strip()
+APP_VERSION = getenv("APP_VERSION", "ui-v2-heatmaps-hours-2026-05-13")
 REFRESH_LOCK = Lock()
 REFRESH_STATE = {
     "running": False,
@@ -57,6 +58,19 @@ def require_basic_auth():
         401,
         {"WWW-Authenticate": 'Basic realm="amoCRM Analytics"'},
     )
+
+
+@app.after_request
+def disable_browser_cache(response):
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response
+
+
+@app.context_processor
+def inject_app_version():
+    return {"app_version": APP_VERSION}
 
 
 def load_dashboard_cache():
@@ -243,6 +257,11 @@ def status():
 @app.route("/health")
 def health():
     return {"status": "ok"}
+
+
+@app.route("/version")
+def version():
+    return {"version": APP_VERSION}
 
 
 if __name__ == "__main__":
