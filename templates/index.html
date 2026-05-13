@@ -235,6 +235,10 @@
       background: rgba(15, 23, 42, 0.24);
     }
 
+    .insight-card.wide {
+      grid-column: 1 / -1;
+    }
+
     .insight-card h3 {
       margin: 0 0 12px;
       font-size: 16px;
@@ -303,10 +307,10 @@
     .heatmap-row {
       display: grid;
       grid-template-columns: 34px repeat(13, 42px);
-      gap: 4px;
+      gap: 6px;
       align-items: center;
       color: var(--muted);
-      font-size: 11px;
+      font-size: 12px;
       min-width: max-content;
     }
 
@@ -320,12 +324,23 @@
       align-items: center;
       justify-content: center;
       min-width: 42px;
-      height: 26px;
-      border-radius: 5px;
+      height: 32px;
+      border-radius: 8px;
       background: rgba(56, 189, 248, var(--intensity));
       color: var(--text);
-      font-size: 10px;
+      font-size: 11px;
       font-weight: 700;
+    }
+
+    .version-badge {
+      display: inline-flex;
+      margin-top: 8px;
+      border: 1px solid rgba(56, 189, 248, 0.35);
+      border-radius: 999px;
+      padding: 5px 9px;
+      color: #bae6fd;
+      background: rgba(56, 189, 248, 0.1);
+      font-size: 12px;
     }
 
     .heat-legend {
@@ -560,6 +575,7 @@
       <div>
         <h1>Аналитика менеджеров Шымкент</h1>
         <p class="subtitle">Данные amoCRM API v4 по группе SHYMKENT / Шымкент</p>
+        <span class="version-badge">UI v2: зоны внимания + карты с часами и числами</span>
       </div>
       <div class="refresh">
         <span>Последнее обновление: {{ dashboard.updated_at }}</span>
@@ -690,7 +706,7 @@
             </ul>
           </div>
 
-          <div class="insight-card">
+          <div class="insight-card wide">
             <h3>Зоны внимания</h3>
             <p class="hint">
               Это не оценка “плохой/хороший”. Блок показывает, где руководителю стоит проверить работу:
@@ -745,7 +761,7 @@
             </ul>
           </div>
 
-          <div class="insight-card">
+          <div class="insight-card wide">
             <h3>Активность по дням и часам</h3>
             <p class="hint">
               Строки — дни недели, столбцы — часы. Чем ярче клетка, тем больше действий amoCRM было в этот час.
@@ -793,7 +809,7 @@
             </ul>
           </div>
 
-          <div class="insight-card">
+          <div class="insight-card wide">
             <h3>Тепловая карта обращений</h3>
             <p class="hint">
               Показывает, когда приходят входящие обращения: новые лиды, входящие звонки и входящие сообщения.
