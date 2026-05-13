@@ -1,0 +1,6 @@
+.env
+tokens.json
+dashboard_cache.json
+.venv/
+__pycache__/
+*.pyc

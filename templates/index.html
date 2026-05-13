@@ -1,0 +1,811 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Аналитика Шымкент amoCRM</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --card: #111c33;
+      --card-light: #17233d;
+      --text: #e5e7eb;
+      --muted: #94a3b8;
+      --accent: #38bdf8;
+      --border: rgba(148, 163, 184, 0.22);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: Arial, sans-serif;
+    }
+
+    .page {
+      width: min(1440px, calc(100% - 32px));
+      margin: 0 auto;
+      padding: 32px 0 48px;
+    }
+
+    .header {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 24px;
+      margin-bottom: 28px;
+    }
+
+    h1 {
+      margin: 0 0 8px;
+      font-size: 32px;
+      line-height: 1.2;
+    }
+
+    .subtitle {
+      margin: 0;
+      color: var(--muted);
+    }
+
+    .refresh {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 10px 14px;
+      color: var(--muted);
+      white-space: nowrap;
+    }
+
+    .refresh a {
+      color: var(--accent);
+      text-decoration: none;
+      font-weight: 700;
+    }
+
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: end;
+      gap: 10px;
+      margin-bottom: 20px;
+    }
+
+    .field {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .field input {
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 11px 12px;
+      background: var(--card-light);
+      color: var(--text);
+      color-scheme: dark;
+    }
+
+    .manager-filter {
+      margin-bottom: 20px;
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 16px;
+      background: var(--card);
+    }
+
+    .manager-filter select {
+      width: min(420px, 100%);
+      margin-top: 8px;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 11px 12px;
+      background: var(--card-light);
+      color: var(--text);
+    }
+
+    .actions button {
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 11px 14px;
+      background: var(--card-light);
+      color: var(--text);
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    .actions button:disabled {
+      cursor: not-allowed;
+      opacity: 0.45;
+    }
+
+    .progress-card {
+      display: none;
+      margin-bottom: 20px;
+      border: 1px solid rgba(56, 189, 248, 0.45);
+      border-radius: 16px;
+      padding: 16px;
+      background: rgba(56, 189, 248, 0.1);
+    }
+
+    .progress-card.active {
+      display: block;
+    }
+
+    .progress-title {
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 10px;
+      color: #bae6fd;
+    }
+
+    .progress-bar {
+      overflow: hidden;
+      height: 12px;
+      border-radius: 999px;
+      background: rgba(15, 23, 42, 0.78);
+    }
+
+    .progress-fill {
+      width: 0;
+      height: 100%;
+      border-radius: inherit;
+      background: linear-gradient(90deg, #38bdf8, #22c55e);
+      transition: width 0.3s ease;
+    }
+
+    .period-card {
+      overflow: hidden;
+      margin-bottom: 28px;
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      background: var(--card);
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.18);
+    }
+
+    .period-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 22px 24px;
+      border-bottom: 1px solid var(--border);
+      background: linear-gradient(135deg, rgba(56, 189, 248, 0.14), rgba(17, 28, 51, 0));
+    }
+
+    h2 {
+      margin: 0;
+      font-size: 24px;
+    }
+
+    .date-range {
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .totals {
+      display: grid;
+      grid-template-columns: repeat(7, minmax(130px, 1fr));
+      gap: 12px;
+      padding: 20px 24px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .metric {
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 14px;
+      background: var(--card-light);
+    }
+
+    .metric-value {
+      display: block;
+      margin-bottom: 6px;
+      color: var(--accent);
+      font-size: 24px;
+      font-weight: 700;
+    }
+
+    .metric-label {
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.35;
+    }
+
+    .insight-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 16px;
+      padding: 20px 24px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .insight-card {
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 16px;
+      background: rgba(15, 23, 42, 0.24);
+    }
+
+    .insight-card h3 {
+      margin: 0 0 12px;
+      font-size: 16px;
+    }
+
+    .bars {
+      display: grid;
+      gap: 10px;
+    }
+
+    .bar-row {
+      display: grid;
+      grid-template-columns: 110px 1fr 64px;
+      align-items: center;
+      gap: 10px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .bar-track {
+      overflow: hidden;
+      height: 9px;
+      border-radius: 999px;
+      background: rgba(148, 163, 184, 0.16);
+    }
+
+    .bar-fill {
+      height: 100%;
+      border-radius: inherit;
+      background: linear-gradient(90deg, #38bdf8, #22c55e);
+    }
+
+    .compact-list {
+      display: grid;
+      gap: 8px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .compact-list li {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+      padding-bottom: 7px;
+    }
+
+    .delta.up {
+      color: #86efac;
+    }
+
+    .delta.down {
+      color: #fca5a5;
+    }
+
+    .heatmap {
+      display: grid;
+      gap: 7px;
+    }
+
+    .heatmap-row {
+      display: grid;
+      grid-template-columns: 28px repeat(13, 1fr);
+      gap: 4px;
+      align-items: center;
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .heat-cell {
+      height: 18px;
+      border-radius: 5px;
+      background: rgba(56, 189, 248, var(--intensity));
+    }
+
+    .manager-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+      gap: 16px;
+      padding: 20px 24px 24px;
+    }
+
+    .manager-card {
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      padding: 18px;
+      background: var(--card-light);
+    }
+
+    .manager-top {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 14px;
+    }
+
+    .manager-name {
+      margin: 0;
+      font-size: 18px;
+    }
+
+    .manager-id {
+      margin-top: 4px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .rating {
+      border-radius: 999px;
+      padding: 7px 11px;
+      background: rgba(34, 197, 94, 0.16);
+      color: #86efac;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .manager-stats {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+
+    .stat {
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 10px;
+      background: rgba(15, 23, 42, 0.28);
+    }
+
+    .stat strong {
+      display: block;
+      margin-bottom: 4px;
+      color: var(--accent);
+      font-size: 18px;
+    }
+
+    .stat span {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.3;
+    }
+
+    .details {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .detail-block {
+      border-top: 1px solid var(--border);
+      padding-top: 12px;
+    }
+
+    .detail-block h4 {
+      margin: 0 0 8px;
+      font-size: 14px;
+    }
+
+    .detail-list {
+      display: grid;
+      gap: 7px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .detail-list li {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+      padding-bottom: 6px;
+    }
+
+    .table-wrap {
+      overflow-x: auto;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 1120px;
+    }
+
+    th,
+    td {
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--border);
+      text-align: right;
+      white-space: nowrap;
+    }
+
+    th {
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 600;
+      background: rgba(15, 23, 42, 0.36);
+    }
+
+    td:first-child,
+    td:nth-child(2),
+    th:first-child,
+    th:nth-child(2) {
+      text-align: left;
+    }
+
+    tr:last-child td {
+      border-bottom: 0;
+    }
+
+    .empty {
+      padding: 32px 24px;
+      color: var(--muted);
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+    }
+
+    .alert {
+      margin-bottom: 20px;
+      border: 1px solid rgba(251, 191, 36, 0.45);
+      border-radius: 14px;
+      padding: 14px 16px;
+      background: rgba(251, 191, 36, 0.12);
+      color: #fde68a;
+    }
+
+    .alert.info {
+      border-color: rgba(56, 189, 248, 0.45);
+      background: rgba(56, 189, 248, 0.12);
+      color: #bae6fd;
+    }
+
+    @media (max-width: 1100px) {
+      .header,
+      .period-header {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+
+      .totals {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <header class="header">
+      <div>
+        <h1>Аналитика менеджеров Шымкент</h1>
+        <p class="subtitle">Данные amoCRM API v4 по группе SHYMKENT / Шымкент</p>
+      </div>
+      <div class="refresh">
+        <span>Последнее обновление: {{ dashboard.updated_at }}</span>
+      </div>
+    </header>
+
+    <form class="actions" action="{{ url_for('refresh') }}" method="post">
+      <label class="field">
+        Дата начала
+        <input type="date" name="date_from" value="{{ dashboard.selected.date_from }}" required>
+      </label>
+      <label class="field">
+        Дата окончания
+        <input type="date" name="date_to" value="{{ dashboard.selected.date_to }}" required>
+      </label>
+      <button type="submit" {% if dashboard.refresh.running %}disabled{% endif %}>
+        {% if dashboard.refresh.running %}
+          Идет сбор...
+        {% else %}
+          Собрать данные
+        {% endif %}
+      </button>
+    </form>
+
+    <div class="manager-filter">
+      <label>
+        Фильтр по менеджеру
+        <select id="manager-filter">
+          <option value="">Все менеджеры</option>
+          {% for period in dashboard.periods %}
+            {% if loop.first and period.managers is defined %}
+              {% for manager in period.managers %}
+                <option value="{{ manager['ID менеджера'] }}">{{ manager["Менеджер"] }}</option>
+              {% endfor %}
+            {% endif %}
+          {% endfor %}
+        </select>
+      </label>
+    </div>
+
+    <div id="progress-card" class="progress-card {% if dashboard.refresh.running %}active{% endif %}">
+      <div class="progress-title">
+        <span id="progress-message">{{ dashboard.refresh.message }}</span>
+        <strong id="progress-percent">{{ dashboard.refresh.percent }}%</strong>
+      </div>
+      <div class="progress-bar">
+        <div id="progress-fill" class="progress-fill" style="width: {{ dashboard.refresh.percent }}%;"></div>
+      </div>
+    </div>
+
+    {% if dashboard.refresh.message %}
+      <div class="alert info">{{ dashboard.refresh.message }}</div>
+    {% endif %}
+
+    {% if dashboard.refresh.error %}
+      <div class="alert">Ошибка обновления: {{ dashboard.refresh.error }}</div>
+    {% endif %}
+
+    {% if dashboard.error %}
+      <div class="alert">{{ dashboard.error }}</div>
+    {% endif %}
+
+    {% if dashboard.group_users_count == 0 %}
+      <div class="empty">Менеджеры группы Шымкент не найдены.</div>
+    {% endif %}
+
+    {% for period in dashboard.periods %}
+      <section class="period-card">
+        <div class="period-header">
+          <div>
+            <h2>{{ period.title }}</h2>
+            <div class="date-range">{{ period.date_range }}</div>
+            <div class="date-range">Обновлено: {{ period.updated_at }}</div>
+          </div>
+        </div>
+
+        <div class="totals">
+          {% for label, value in period.totals.items() %}
+            <div class="metric">
+              <span class="metric-value">{{ value }}</span>
+              <span class="metric-label">{{ label }}</span>
+            </div>
+          {% endfor %}
+        </div>
+
+        <div class="insight-grid">
+          <div class="insight-card">
+            <h3>Сравнение с предыдущим периодом</h3>
+            <ul class="compact-list">
+              {% for item in period.comparison %}
+                <li>
+                  <span>{{ item.metric }}</span>
+                  <strong class="delta {% if item.diff >= 0 %}up{% else %}down{% endif %}">
+                    {{ item.current }} ({% if item.diff >= 0 %}+{% endif %}{{ item.diff }})
+                  </strong>
+                </li>
+              {% else %}
+                <li><span>Нет данных для сравнения</span><strong>-</strong></li>
+              {% endfor %}
+            </ul>
+          </div>
+
+          <div class="insight-card">
+            <h3>Динамика по дням</h3>
+            <div class="bars">
+              {% for day in period.daily_dynamics %}
+                <div class="bar-row">
+                  <span>{{ day.date }}</span>
+                  <div class="bar-track">
+                    <div class="bar-fill" style="width: {% if period.totals['Действия в amoCRM'] %}{{ (day['Действия в amoCRM'] / period.totals['Действия в amoCRM'] * 100)|round(1) }}{% else %}0{% endif %}%;"></div>
+                  </div>
+                  <strong>{{ day["Действия в amoCRM"] }}</strong>
+                </div>
+              {% else %}
+                <div class="date-range">Нет данных</div>
+              {% endfor %}
+            </div>
+          </div>
+
+          <div class="insight-card">
+            <h3>Качество обработки новых лидов</h3>
+            <ul class="compact-list">
+              <li><span>Новые лиды</span><strong>{{ period.lead_quality.totals.new_leads or 0 }}</strong></li>
+              <li><span>Первый контакт до 5 минут</span><strong>{{ period.lead_quality.totals.within_5_min or 0 }}</strong></li>
+              <li><span>Первый контакт до 15 минут</span><strong>{{ period.lead_quality.totals.within_15_min or 0 }}</strong></li>
+              <li><span>Первый контакт до 30 минут</span><strong>{{ period.lead_quality.totals.within_30_min or 0 }}</strong></li>
+              <li><span>Без контакта</span><strong>{{ period.lead_quality.totals.without_contact or 0 }}</strong></li>
+            </ul>
+          </div>
+
+          <div class="insight-card">
+            <h3>Антирейтинг рисков</h3>
+            <ul class="compact-list">
+              {% for risk in period.risk_anti_rating %}
+                <li data-manager-id="{{ risk.manager_id }}">
+                  <span>{{ risk.manager }}</span>
+                  <strong>{{ risk.risk_score }}</strong>
+                </li>
+              {% else %}
+                <li><span>Рисков не найдено</span><strong>0</strong></li>
+              {% endfor %}
+            </ul>
+          </div>
+
+          <div class="insight-card">
+            <h3>Проблемные сделки</h3>
+            <ul class="compact-list">
+              {% for deal in period.problem_deals[:8] %}
+                <li>
+                  <span>#{{ deal.lead_id }} · {{ deal.reason }}</span>
+                  <strong>{{ deal.touches }} кас.</strong>
+                </li>
+              {% else %}
+                <li><span>Критичных сделок не найдено</span><strong>OK</strong></li>
+              {% endfor %}
+            </ul>
+          </div>
+
+          <div class="insight-card">
+            <h3>Воронка по этапам</h3>
+            <ul class="compact-list">
+              {% for stage in period.funnel %}
+                <li><span>{{ stage.stage }}</span><strong>{{ stage.count }}</strong></li>
+              {% else %}
+                <li><span>Нет переходов по этапам</span><strong>0</strong></li>
+              {% endfor %}
+            </ul>
+          </div>
+
+          <div class="insight-card">
+            <h3>Тепловая карта активности</h3>
+            <div class="heatmap">
+              {% for row in period.heatmap %}
+                <div class="heatmap-row">
+                  <span>{{ row.weekday }}</span>
+                  {% for hour in row.hours %}
+                    <span class="heat-cell" title="{{ row.weekday }} {{ hour.hour }}:00 · {{ hour.value }}" style="--intensity: {{ 0.08 + hour.intensity * 0.85 }}"></span>
+                  {% endfor %}
+                </div>
+              {% else %}
+                <div class="date-range">Нет данных</div>
+              {% endfor %}
+            </div>
+          </div>
+        </div>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Менеджер</th>
+                <th>Действия в amoCRM</th>
+                <th>Звонки</th>
+                <th>Отправленные сообщения</th>
+                <th>Закрытые сделки</th>
+                <th>Открытые сделки</th>
+                <th>Поставленные задачи</th>
+                <th>Закрытые задачи</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in period.rows %}
+                <tr data-manager-id="{{ row['ID менеджера'] }}">
+                  <td>{{ row["ID менеджера"] }}</td>
+                  <td>{{ row["Менеджер"] }}</td>
+                  <td>{{ row["Действия в amoCRM"] }}</td>
+                  <td>{{ row["Звонки"] }}</td>
+                  <td>{{ row["Отправленные сообщения"] }}</td>
+                  <td>{{ row["Закрытые сделки"] }}</td>
+                  <td>{{ row["Открытые сделки"] }}</td>
+                  <td>{{ row["Поставленные задачи"] }}</td>
+                  <td>{{ row["Закрытые задачи"] }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+
+        {% if period.managers is defined and period.managers %}
+          <div class="manager-grid">
+            {% for manager in period.managers %}
+              <article class="manager-card" data-manager-id="{{ manager['ID менеджера'] }}">
+                <div class="manager-top">
+                  <div>
+                    <h3 class="manager-name">{{ manager["Менеджер"] }}</h3>
+                    <div class="manager-id">ID: {{ manager["ID менеджера"] }}</div>
+                  </div>
+                  <div class="rating">Рейтинг: {{ manager["Рейтинг"] }}</div>
+                </div>
+
+                <div class="manager-stats">
+                  <div class="stat"><strong>{{ manager["Среднее время до первого контакта"] }}</strong><span>Среднее время до первого контакта</span></div>
+                  <div class="stat"><strong>{{ manager["Просроченные задачи"] }}</strong><span>Просроченные задачи</span></div>
+                  <div class="stat"><strong>{{ manager["Звонки и сообщения на сделку"] }}</strong><span>Звонки и сообщения на сделку</span></div>
+                  <div class="stat"><strong>{{ manager["Сделки с 2+ касаниями"] }} / {{ manager["Сделки с 3+ касаниями"] }} / {{ manager["Сделки с 5+ касаниями"] }}</strong><span>Сделки с 2+ / 3+ / 5+ касаниями</span></div>
+                </div>
+
+                <div class="manager-stats">
+                  <div class="stat"><strong>{{ manager["Действия в amoCRM"] }}</strong><span>Действия в amoCRM</span></div>
+                  <div class="stat"><strong>{{ manager["Звонки"] }}</strong><span>Звонки</span></div>
+                  <div class="stat"><strong>{{ manager["Отправленные сообщения"] }}</strong><span>Отправленные сообщения</span></div>
+                  <div class="stat"><strong>{{ manager["Закрытые сделки"] }}</strong><span>Закрытые сделки</span></div>
+                </div>
+
+                <div class="details">
+                  <div class="detail-block">
+                    <h4>Конверсия по этапам</h4>
+                    <ul class="detail-list">
+                      {% for stage in manager["Конверсия по этапам"] %}
+                        <li><span>{{ stage.stage }}</span><strong>{{ stage.count }}</strong></li>
+                      {% else %}
+                        <li><span>Нет переходов по этапам</span><strong>0</strong></li>
+                      {% endfor %}
+                    </ul>
+                  </div>
+
+                  <div class="detail-block">
+                    <h4>Скорость по этапам</h4>
+                    <ul class="detail-list">
+                      {% for stage in manager["Скорость по этапам"] %}
+                        <li><span>{{ stage.stage }}</span><strong>{{ stage.avg_time }}</strong></li>
+                      {% else %}
+                        <li><span>Недостаточно данных</span><strong>-</strong></li>
+                      {% endfor %}
+                    </ul>
+                  </div>
+                </div>
+              </article>
+            {% endfor %}
+          </div>
+        {% endif %}
+      </section>
+    {% endfor %}
+  </main>
+  <script>
+    async function pollStatus() {
+      const response = await fetch("{{ url_for('status') }}");
+      const status = await response.json();
+      const card = document.getElementById("progress-card");
+      const fill = document.getElementById("progress-fill");
+      const percent = document.getElementById("progress-percent");
+      const message = document.getElementById("progress-message");
+
+      if (status.running) {
+        card.classList.add("active");
+        fill.style.width = `${status.percent}%`;
+        percent.textContent = `${status.percent}%`;
+        message.textContent = status.message || "Идет сбор данных...";
+        setTimeout(pollStatus, 2000);
+        return;
+      }
+
+      if (card.classList.contains("active")) {
+        window.location.reload();
+      }
+    }
+
+    {% if dashboard.refresh.running %}
+      pollStatus();
+    {% endif %}
+
+    const managerFilter = document.getElementById("manager-filter");
+    if (managerFilter) {
+      managerFilter.addEventListener("change", () => {
+        const selectedManager = managerFilter.value;
+        document.querySelectorAll("[data-manager-id]").forEach((element) => {
+          const isVisible = !selectedManager || element.dataset.managerId === selectedManager;
+          element.style.display = isVisible ? "" : "none";
+        });
+      });
+    }
+  </script>
+</body>
+</html>
