@@ -12,6 +12,7 @@ GROUP_KEYWORDS = ("shymkent", "шымкент")
 CLOSED_STATUS_IDS = {142, 143}
 TRACKED_EVENT_TYPES = (
     "incoming_call",
+    "incoming_chat_message",
     "outgoing_call",
     "outgoing_chat_message",
     "lead_status_changed",
@@ -897,8 +898,11 @@ def build_period_data(
     heatmap = build_heatmap(events, group_users)
     top_activity_hours = build_top_activity_hours(heatmap)
     if progress_callback:
-        progress_callback(96, "Загружаем обращения для тепловой карты")
-    appeal_events = fetch_appeal_events(client, period.started_ts, period.ended_ts)
+        progress_callback(96, "Строим тепловую карту обращений")
+    appeal_events = [
+        event for event in events
+        if event.get("type") in APPEAL_EVENT_TYPES
+    ]
     appeals_heatmap = build_event_type_heatmap(appeal_events)
     top_appeal_hours = build_top_activity_hours(appeals_heatmap)
     appeal_summary = build_appeal_summary(appeal_events)
