@@ -517,6 +517,22 @@ def build_heatmap(events: list[dict[str, Any]], group_users: dict[int, str]) -> 
     return rows
 
 
+def build_top_activity_hours(heatmap: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    hours = []
+    for row in heatmap:
+        for hour in row["hours"]:
+            if hour["value"]:
+                hours.append(
+                    {
+                        "weekday": row["weekday"],
+                        "hour": f"{hour['hour']}:00",
+                        "value": hour["value"],
+                    }
+                )
+
+    return sorted(hours, key=lambda item: item["value"], reverse=True)[:6]
+
+
 def build_lead_quality(events: list[dict[str, Any]], group_users: dict[int, str]) -> dict[str, Any]:
     lead_created_at: dict[int, int] = {}
     first_contact: dict[int, tuple[int, int]] = {}
@@ -611,10 +627,15 @@ def build_problem_deals(events: list[dict[str, Any]], group_users: dict[int, str
 def build_risk_anti_rating(managers: list[dict[str, Any]]) -> list[dict[str, Any]]:
     risks = []
     for manager in managers:
+        overdue_points = manager["Просроченные задачи"] * 3
+        contacts_gap = max(0, 5 - manager["Звонки и сообщения на сделку"])
+        contacts_points = contacts_gap * 2
+        followup_gap = max(0, 3 - manager["Сделки с 3+ касаниями"])
+        followup_points = followup_gap
         score = (
-            manager["Просроченные задачи"] * 3
-            + max(0, 5 - manager["Звонки и сообщения на сделку"]) * 2
-            + max(0, 3 - manager["Сделки с 3+ касаниями"])
+            overdue_points
+            + contacts_points
+            + followup_points
         )
         risks.append(
             {
@@ -624,6 +645,23 @@ def build_risk_anti_rating(managers: list[dict[str, Any]]) -> list[dict[str, Any
                 "overdue_tasks": manager["Просроченные задачи"],
                 "contacts_per_lead": manager["Звонки и сообщения на сделку"],
                 "deals_3_plus": manager["Сделки с 3+ касаниями"],
+                "reasons": [
+                    {
+                        "label": "Просроченные задачи",
+                        "value": manager["Просроченные задачи"],
+                        "points": round(overdue_points, 1),
+                    },
+                    {
+                        "label": "Мало звонков/сообщений на сделку",
+                        "value": manager["Звонки и сообщения на сделку"],
+                        "points": round(contacts_points, 1),
+                    },
+                    {
+                        "label": "Мало сделок с 3+ касаниями",
+                        "value": manager["Сделки с 3+ касаниями"],
+                        "points": round(followup_points, 1),
+                    },
+                ],
             }
         )
 
@@ -699,6 +737,7 @@ def empty_dashboard() -> dict[str, Any]:
                 "comparison": [],
                 "daily_dynamics": [],
                 "heatmap": [],
+                "top_activity_hours": [],
                 "lead_quality": {"totals": {}, "rows": []},
                 "problem_deals": [],
                 "risk_anti_rating": [],
@@ -784,6 +823,7 @@ def build_period_data(
     comparison = build_comparison(report, previous_report)
     daily_dynamics = build_daily_dynamics(events, period, group_users)
     heatmap = build_heatmap(events, group_users)
+    top_activity_hours = build_top_activity_hours(heatmap)
     lead_quality = build_lead_quality(events, group_users)
     problem_deals = build_problem_deals(events, group_users)
     risk_anti_rating = build_risk_anti_rating(manager_details)
@@ -808,6 +848,7 @@ def build_period_data(
             "comparison": comparison,
             "daily_dynamics": daily_dynamics,
             "heatmap": heatmap,
+            "top_activity_hours": top_activity_hours,
             "lead_quality": lead_quality,
             "problem_deals": problem_deals,
             "risk_anti_rating": risk_anti_rating,

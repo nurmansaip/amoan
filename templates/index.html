@@ -307,10 +307,66 @@
       font-size: 11px;
     }
 
+    .heatmap-row.header {
+      color: var(--muted);
+      opacity: 0.8;
+    }
+
     .heat-cell {
       height: 18px;
       border-radius: 5px;
       background: rgba(56, 189, 248, var(--intensity));
+    }
+
+    .heat-legend {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin: 10px 0 14px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .legend-scale {
+      display: inline-flex;
+      overflow: hidden;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+    }
+
+    .legend-scale span {
+      width: 22px;
+      height: 10px;
+      background: rgba(56, 189, 248, var(--intensity));
+    }
+
+    .hint {
+      margin: -4px 0 12px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .risk-card {
+      display: grid;
+      gap: 8px;
+      border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+      padding-bottom: 10px;
+    }
+
+    .risk-main {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      color: var(--text);
+      font-size: 13px;
+    }
+
+    .risk-reasons {
+      display: grid;
+      gap: 4px;
+      color: var(--muted);
+      font-size: 11px;
     }
 
     .manager-grid {
@@ -625,17 +681,33 @@
           </div>
 
           <div class="insight-card">
-            <h3>Антирейтинг рисков</h3>
-            <ul class="compact-list">
+            <h3>Зоны внимания</h3>
+            <p class="hint">
+              Это не оценка “плохой/хороший”. Блок показывает, где руководителю стоит проверить работу:
+              просрочки, мало контактов на сделку и слабый follow-up.
+            </p>
+            <p class="hint">
+              Формула: просрочки × 3 + недобор контактов на сделку × 2 + недобор сделок с 3+ касаниями.
+            </p>
+            <div class="compact-list">
               {% for risk in period.risk_anti_rating %}
-                <li data-manager-id="{{ risk.manager_id }}">
-                  <span>{{ risk.manager }}</span>
-                  <strong>{{ risk.risk_score }}</strong>
-                </li>
+                <div class="risk-card" data-manager-id="{{ risk.manager_id }}">
+                  <div class="risk-main">
+                    <span>{{ risk.manager }}</span>
+                    <strong>{{ risk.risk_score }} баллов</strong>
+                  </div>
+                  <div class="risk-reasons">
+                    {% for reason in risk.reasons %}
+                      <span>{{ reason.label }}: {{ reason.value }} → {{ reason.points }} балл.</span>
+                    {% endfor %}
+                  </div>
+                </div>
               {% else %}
-                <li><span>Рисков не найдено</span><strong>0</strong></li>
+                <div class="risk-card">
+                  <div class="risk-main"><span>Рисков не найдено</span><strong>0</strong></div>
+                </div>
               {% endfor %}
-            </ul>
+            </div>
           </div>
 
           <div class="insight-card">
@@ -664,19 +736,49 @@
           </div>
 
           <div class="insight-card">
-            <h3>Тепловая карта активности</h3>
+            <h3>Активность по дням и часам</h3>
+            <p class="hint">
+              Строки — дни недели, столбцы — часы. Чем ярче клетка, тем больше действий amoCRM было в этот час.
+            </p>
+            <div class="heat-legend">
+              <span>Меньше</span>
+              <span class="legend-scale">
+                <span style="--intensity: 0.08"></span>
+                <span style="--intensity: 0.25"></span>
+                <span style="--intensity: 0.45"></span>
+                <span style="--intensity: 0.7"></span>
+                <span style="--intensity: 0.95"></span>
+              </span>
+              <span>Больше</span>
+            </div>
             <div class="heatmap">
+              {% if period.heatmap %}
+                <div class="heatmap-row header">
+                  <span></span>
+                  {% for hour in period.heatmap[0].hours %}
+                    <span>{{ hour.hour }}</span>
+                  {% endfor %}
+                </div>
+              {% endif %}
               {% for row in period.heatmap %}
                 <div class="heatmap-row">
                   <span>{{ row.weekday }}</span>
                   {% for hour in row.hours %}
-                    <span class="heat-cell" title="{{ row.weekday }} {{ hour.hour }}:00 · {{ hour.value }}" style="--intensity: {{ 0.08 + hour.intensity * 0.85 }}"></span>
+                    <span class="heat-cell" title="{{ row.weekday }} {{ hour.hour }}:00 · {{ hour.value }} действий" style="--intensity: {{ 0.08 + hour.intensity * 0.85 }}"></span>
                   {% endfor %}
                 </div>
               {% else %}
                 <div class="date-range">Нет данных</div>
               {% endfor %}
             </div>
+            <h3 style="margin-top: 16px;">Самые активные часы</h3>
+            <ul class="compact-list">
+              {% for item in period.top_activity_hours %}
+                <li><span>{{ item.weekday }}, {{ item.hour }}</span><strong>{{ item.value }} действий</strong></li>
+              {% else %}
+                <li><span>Нет активности</span><strong>0</strong></li>
+              {% endfor %}
+            </ul>
           </div>
         </div>
 
