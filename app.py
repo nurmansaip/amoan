@@ -3,9 +3,10 @@ from copy import deepcopy
 from datetime import datetime
 from os import getenv
 from pathlib import Path
+from secrets import compare_digest
 from threading import Lock, Thread
 
-from flask import Flask, jsonify, redirect, render_template, request, url_for
+from flask import Flask, Response, jsonify, redirect, render_template, request, url_for
 
 from analytics import CUSTOM_PERIOD_KEY, build_period_data, empty_dashboard
 
@@ -13,6 +14,8 @@ from analytics import CUSTOM_PERIOD_KEY, build_period_data, empty_dashboard
 app = Flask(__name__)
 BASE_DIR = Path(__file__).resolve().parent
 CACHE_PATH = Path(getenv("CACHE_PATH", "") or BASE_DIR / "dashboard_cache.json")
+APP_USERNAME = getenv("APP_USERNAME", "").strip()
+APP_PASSWORD = getenv("APP_PASSWORD", "").strip()
 REFRESH_LOCK = Lock()
 REFRESH_STATE = {
     "running": False,
@@ -22,6 +25,36 @@ REFRESH_STATE = {
     "message": "",
     "error": "",
 }
+
+
+def is_auth_enabled():
+    return bool(APP_USERNAME and APP_PASSWORD)
+
+
+def is_authorized():
+    if not is_auth_enabled():
+        return True
+
+    auth = request.authorization
+    if not auth:
+        return False
+
+    return compare_digest(auth.username, APP_USERNAME) and compare_digest(auth.password, APP_PASSWORD)
+
+
+@app.before_request
+def require_basic_auth():
+    if request.path == "/health":
+        return None
+
+    if is_authorized():
+        return None
+
+    return Response(
+        "Требуется авторизация",
+        401,
+        {"WWW-Authenticate": 'Basic realm="amoCRM Analytics"'},
+    )
 
 
 def load_dashboard_cache():

@@ -15,6 +15,8 @@ ACCESS_TOKEN=
 REFRESH_TOKEN=
 TOKENS_PATH=/data/tokens.json
 CACHE_PATH=/data/dashboard_cache.json
+APP_USERNAME=
+APP_PASSWORD=
 ```
 
 Use a Railway volume mounted to `/data` so refreshed amoCRM tokens and dashboard cache survive restarts.
