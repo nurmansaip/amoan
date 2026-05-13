@@ -306,7 +306,7 @@
 
     .heatmap-row {
       display: grid;
-      grid-template-columns: 34px repeat(13, 42px);
+      grid-template-columns: 54px repeat(13, 58px);
       gap: 6px;
       align-items: center;
       color: var(--muted);
@@ -315,20 +315,41 @@
     }
 
     .heatmap-row.header {
-      color: var(--muted);
-      opacity: 0.8;
+      color: #e5e7eb;
+      font-weight: 700;
+      opacity: 1;
+      margin-bottom: 4px;
+    }
+
+    .heatmap-row > span:first-child {
+      position: sticky;
+      left: 0;
+      z-index: 2;
+      border-radius: 8px;
+      padding: 7px 6px;
+      background: var(--card);
+      color: #e5e7eb;
+      font-weight: 700;
+      text-align: center;
+    }
+
+    .hour-label {
+      border-radius: 8px;
+      padding: 7px 4px;
+      background: rgba(148, 163, 184, 0.16);
+      text-align: center;
     }
 
     .heat-cell {
       display: flex;
       align-items: center;
       justify-content: center;
-      min-width: 42px;
+      min-width: 58px;
       height: 32px;
       border-radius: 8px;
       background: rgba(56, 189, 248, var(--intensity));
       color: var(--text);
-      font-size: 11px;
+      font-size: 12px;
       font-weight: 700;
     }
 
@@ -782,7 +803,7 @@
                 <div class="heatmap-row header">
                   <span></span>
                   {% for hour in period.heatmap[0].hours %}
-                    <span>{{ hour.hour }}:00</span>
+                    <span class="hour-label">{{ "%02d:00"|format(hour.hour) }}</span>
                   {% endfor %}
                 </div>
               {% endif %}
@@ -790,7 +811,7 @@
                 <div class="heatmap-row">
                   <span>{{ row.weekday }}</span>
                   {% for hour in row.hours %}
-                    <span class="heat-cell" title="{{ row.weekday }} {{ hour.hour }}:00 · {{ hour.value }} действий" style="--intensity: {{ 0.12 + hour.intensity * 0.88 }}">
+                    <span class="heat-cell" title="{{ row.weekday }} {{ "%02d:00"|format(hour.hour) }} · {{ hour.value }} действий" style="--intensity: {{ 0.12 + hour.intensity * 0.88 }}">
                       {% if hour.value %}{{ hour.value }}{% endif %}
                     </span>
                   {% endfor %}
@@ -835,18 +856,18 @@
             </div>
             <div class="heatmap">
               {% if period.appeals_heatmap %}
-                <div class="heatmap-row header" style="grid-template-columns: 34px repeat(24, 42px);">
+                <div class="heatmap-row header" style="grid-template-columns: 54px repeat(24, 58px);">
                   <span></span>
                   {% for hour in period.appeals_heatmap[0].hours %}
-                    <span>{{ hour.hour }}:00</span>
+                    <span class="hour-label">{{ "%02d:00"|format(hour.hour) }}</span>
                   {% endfor %}
                 </div>
               {% endif %}
               {% for row in period.appeals_heatmap %}
-                <div class="heatmap-row" style="grid-template-columns: 34px repeat(24, 42px);">
+                <div class="heatmap-row" style="grid-template-columns: 54px repeat(24, 58px);">
                   <span>{{ row.weekday }}</span>
                   {% for hour in row.hours %}
-                    <span class="heat-cell" title="{{ row.weekday }} {{ hour.hour }}:00 · {{ hour.value }} обращений" style="--intensity: {{ 0.12 + hour.intensity * 0.88 }}">
+                    <span class="heat-cell" title="{{ row.weekday }} {{ "%02d:00"|format(hour.hour) }} · {{ hour.value }} обращений" style="--intensity: {{ 0.12 + hour.intensity * 0.88 }}">
                       {% if hour.value %}{{ hour.value }}{% endif %}
                     </span>
                   {% endfor %}
