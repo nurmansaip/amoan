@@ -19,6 +19,11 @@ TRACKED_EVENT_TYPES = (
     "task_added",
     "task_completed",
 )
+APPEAL_EVENT_TYPES = (
+    "lead_added",
+    "incoming_call",
+    "incoming_chat_message",
+)
 CUSTOM_PERIOD_KEY = "custom"
 METRIC_COLUMNS = [
     "Действия в amoCRM",
@@ -167,6 +172,40 @@ def fetch_events(
         for user_id in user_ids:
             params.append(("filter[created_by][]", user_id))
         for event_type in TRACKED_EVENT_TYPES:
+            params.append(("filter[type][]", event_type))
+
+        data = client.get("/api/v4/events", params=params)
+        page_events = data.get("_embedded", {}).get("events", [])
+        events.extend(page_events)
+
+        if not page_events or not data.get("_links", {}).get("next"):
+            break
+
+        page += 1
+
+    return events
+
+
+def fetch_appeal_events(
+    client: AmoCRMClient,
+    started_ts: int,
+    ended_ts: int,
+    progress_callback=None,
+) -> list[dict[str, Any]]:
+    events = []
+    page = 1
+
+    while True:
+        if progress_callback:
+            progress_callback(page, len(events))
+
+        params: list[tuple[str, Any]] = [
+            ("filter[created_at][from]", started_ts),
+            ("filter[created_at][to]", ended_ts),
+            ("limit", 100),
+            ("page", page),
+        ]
+        for event_type in APPEAL_EVENT_TYPES:
             params.append(("filter[type][]", event_type))
 
         data = client.get("/api/v4/events", params=params)
@@ -517,6 +556,36 @@ def build_heatmap(events: list[dict[str, Any]], group_users: dict[int, str]) -> 
     return rows
 
 
+def build_event_type_heatmap(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    weekday_names = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
+    buckets: dict[tuple[int, int], int] = defaultdict(int)
+
+    for event in events:
+        created_at = datetime.fromtimestamp(int(event.get("created_at") or 0))
+        buckets[(created_at.weekday(), created_at.hour)] += 1
+
+    max_value = max(buckets.values()) if buckets else 0
+    rows = []
+    for weekday in range(7):
+        hours = []
+        for hour in range(0, 24):
+            value = buckets.get((weekday, hour), 0)
+            intensity = round(value / max_value, 2) if max_value else 0
+            hours.append({"hour": hour, "value": value, "intensity": intensity})
+        rows.append({"weekday": weekday_names[weekday], "hours": hours})
+
+    return rows
+
+
+def build_appeal_summary(events: list[dict[str, Any]]) -> dict[str, int]:
+    return {
+        "Всего обращений": len(events),
+        "Новые лиды": sum(1 for event in events if event.get("type") == "lead_added"),
+        "Входящие звонки": sum(1 for event in events if event.get("type") == "incoming_call"),
+        "Входящие сообщения": sum(1 for event in events if event.get("type") == "incoming_chat_message"),
+    }
+
+
 def build_top_activity_hours(heatmap: list[dict[str, Any]]) -> list[dict[str, Any]]:
     hours = []
     for row in heatmap:
@@ -738,6 +807,9 @@ def empty_dashboard() -> dict[str, Any]:
                 "daily_dynamics": [],
                 "heatmap": [],
                 "top_activity_hours": [],
+                "appeals_heatmap": [],
+                "top_appeal_hours": [],
+                "appeal_summary": {},
                 "lead_quality": {"totals": {}, "rows": []},
                 "problem_deals": [],
                 "risk_anti_rating": [],
@@ -824,6 +896,12 @@ def build_period_data(
     daily_dynamics = build_daily_dynamics(events, period, group_users)
     heatmap = build_heatmap(events, group_users)
     top_activity_hours = build_top_activity_hours(heatmap)
+    if progress_callback:
+        progress_callback(96, "Загружаем обращения для тепловой карты")
+    appeal_events = fetch_appeal_events(client, period.started_ts, period.ended_ts)
+    appeals_heatmap = build_event_type_heatmap(appeal_events)
+    top_appeal_hours = build_top_activity_hours(appeals_heatmap)
+    appeal_summary = build_appeal_summary(appeal_events)
     lead_quality = build_lead_quality(events, group_users)
     problem_deals = build_problem_deals(events, group_users)
     risk_anti_rating = build_risk_anti_rating(manager_details)
@@ -849,6 +927,9 @@ def build_period_data(
             "daily_dynamics": daily_dynamics,
             "heatmap": heatmap,
             "top_activity_hours": top_activity_hours,
+            "appeals_heatmap": appeals_heatmap,
+            "top_appeal_hours": top_appeal_hours,
+            "appeal_summary": appeal_summary,
             "lead_quality": lead_quality,
             "problem_deals": problem_deals,
             "risk_anti_rating": risk_anti_rating,

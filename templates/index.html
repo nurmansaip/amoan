@@ -780,6 +780,60 @@
               {% endfor %}
             </ul>
           </div>
+
+          <div class="insight-card">
+            <h3>Тепловая карта обращений</h3>
+            <p class="hint">
+              Показывает, когда приходят входящие обращения: новые лиды, входящие звонки и входящие сообщения.
+              Это помогает понять пиковые часы спроса.
+            </p>
+            <ul class="compact-list" style="margin-bottom: 12px;">
+              {% for label, value in period.appeal_summary.items() %}
+                <li><span>{{ label }}</span><strong>{{ value }}</strong></li>
+              {% else %}
+                <li><span>Обращений нет</span><strong>0</strong></li>
+              {% endfor %}
+            </ul>
+            <div class="heat-legend">
+              <span>Меньше</span>
+              <span class="legend-scale">
+                <span style="--intensity: 0.08"></span>
+                <span style="--intensity: 0.25"></span>
+                <span style="--intensity: 0.45"></span>
+                <span style="--intensity: 0.7"></span>
+                <span style="--intensity: 0.95"></span>
+              </span>
+              <span>Больше</span>
+            </div>
+            <div class="heatmap">
+              {% if period.appeals_heatmap %}
+                <div class="heatmap-row header" style="grid-template-columns: 28px repeat(24, 1fr);">
+                  <span></span>
+                  {% for hour in period.appeals_heatmap[0].hours %}
+                    <span>{{ hour.hour }}</span>
+                  {% endfor %}
+                </div>
+              {% endif %}
+              {% for row in period.appeals_heatmap %}
+                <div class="heatmap-row" style="grid-template-columns: 28px repeat(24, 1fr);">
+                  <span>{{ row.weekday }}</span>
+                  {% for hour in row.hours %}
+                    <span class="heat-cell" title="{{ row.weekday }} {{ hour.hour }}:00 · {{ hour.value }} обращений" style="--intensity: {{ 0.08 + hour.intensity * 0.85 }}"></span>
+                  {% endfor %}
+                </div>
+              {% else %}
+                <div class="date-range">Нет данных</div>
+              {% endfor %}
+            </div>
+            <h3 style="margin-top: 16px;">Пиковые часы обращений</h3>
+            <ul class="compact-list">
+              {% for item in period.top_appeal_hours %}
+                <li><span>{{ item.weekday }}, {{ item.hour }}</span><strong>{{ item.value }} обращ.</strong></li>
+              {% else %}
+                <li><span>Нет обращений</span><strong>0</strong></li>
+              {% endfor %}
+            </ul>
+          </div>
         </div>
 
         <div class="table-wrap">
