@@ -6,11 +6,13 @@ from pathlib import Path
 from secrets import compare_digest
 from threading import Lock, Thread
 
+from dotenv import load_dotenv
 from flask import Flask, Response, jsonify, redirect, render_template, request, url_for
 
 from analytics import CUSTOM_PERIOD_KEY, build_period_data, empty_dashboard
 
 
+load_dotenv()
 app = Flask(__name__)
 BASE_DIR = Path(__file__).resolve().parent
 CACHE_PATH = Path(getenv("CACHE_PATH", "") or BASE_DIR / "dashboard_cache.json")
