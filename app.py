@@ -18,7 +18,7 @@ BASE_DIR = Path(__file__).resolve().parent
 CACHE_PATH = Path(getenv("CACHE_PATH", "") or BASE_DIR / "dashboard_cache.json")
 APP_USERNAME = getenv("APP_USERNAME", "").strip()
 APP_PASSWORD = getenv("APP_PASSWORD", "").strip()
-APP_VERSION = getenv("APP_VERSION", "ui-v3-full-day-heatmaps-2026-05-14")
+APP_VERSION = getenv("APP_VERSION", "ui-v4-almaty-tz-2026-05-15")
 REFRESH_LOCK = Lock()
 REFRESH_STATE = {
     "running": False,

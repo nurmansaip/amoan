@@ -1,11 +1,27 @@
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime, time, timedelta
+from os import getenv
 from typing import Any, Optional
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 
 from amo_client import AmoCRMClient
+
+
+def app_timezone() -> ZoneInfo:
+    """Часовой пояс для календарных периодов и часов на графиках (Railway по умолчанию в UTC)."""
+    name = getenv("APP_TIMEZONE", "Asia/Almaty").strip() or "Asia/Almaty"
+    try:
+        return ZoneInfo(name)
+    except Exception:
+        return ZoneInfo("Asia/Almaty")
+
+
+def utc_ts_to_app_local(ts: int) -> datetime:
+    """amoCRM хранит created_at как unix time в UTC — переводим в локальный пояс приложения."""
+    return datetime.fromtimestamp(ts, tz=app_timezone())
 
 
 GROUP_KEYWORDS = ("shymkent", "шымкент")
@@ -53,8 +69,11 @@ class Period:
 
 
 def build_periods(now: Optional[datetime] = None) -> list[Period]:
-    now = now or datetime.now()
-    today_start = datetime.combine(now.date(), time.min)
+    tz = app_timezone()
+    now = now or datetime.now(tz)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=tz)
+    today_start = datetime.combine(now.date(), time.min, tzinfo=tz)
 
     return [
         Period("Сегодня", today_start, now),
@@ -64,8 +83,11 @@ def build_periods(now: Optional[datetime] = None) -> list[Period]:
 
 
 def build_period_by_key(period_key: str, now: Optional[datetime] = None) -> Period:
-    now = now or datetime.now()
-    today_start = datetime.combine(now.date(), time.min)
+    tz = app_timezone()
+    now = now or datetime.now(tz)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=tz)
+    today_start = datetime.combine(now.date(), time.min, tzinfo=tz)
 
     if period_key == "today":
         return Period("Сегодня", today_start, now)
@@ -84,8 +106,9 @@ def build_custom_period(date_from: str, date_to: str) -> Period:
     if started_date > ended_date:
         raise ValueError("Дата начала не может быть позже даты окончания")
 
-    started_at = datetime.combine(started_date, time.min)
-    ended_at = datetime.combine(ended_date, time.max)
+    tz = app_timezone()
+    started_at = datetime.combine(started_date, time.min, tzinfo=tz)
+    ended_at = datetime.combine(ended_date, time.max, tzinfo=tz)
     title = f"{started_date.strftime('%d.%m.%Y')} - {ended_date.strftime('%d.%m.%Y')}"
 
     return Period(title, started_at, ended_at)
@@ -523,7 +546,7 @@ def build_daily_dynamics(events: list[dict[str, Any]], period: Period, group_use
         if manager_id not in group_users:
             continue
 
-        created_at = datetime.fromtimestamp(int(event.get("created_at") or 0))
+        created_at = utc_ts_to_app_local(int(event.get("created_at") or 0))
         day_key = created_at.strftime("%d.%m")
         flags = event_to_metric_flags(event)
         for metric, value in flags.items():
@@ -541,7 +564,7 @@ def build_heatmap(events: list[dict[str, Any]], group_users: dict[int, str]) -> 
         if manager_id not in group_users or event.get("type") not in TRACKED_EVENT_TYPES:
             continue
 
-        created_at = datetime.fromtimestamp(int(event.get("created_at") or 0))
+        created_at = utc_ts_to_app_local(int(event.get("created_at") or 0))
         buckets[(created_at.weekday(), created_at.hour)] += 1
 
     max_value = max(buckets.values()) if buckets else 0
@@ -562,7 +585,7 @@ def build_event_type_heatmap(events: list[dict[str, Any]]) -> list[dict[str, Any
     buckets: dict[tuple[int, int], int] = defaultdict(int)
 
     for event in events:
-        created_at = datetime.fromtimestamp(int(event.get("created_at") or 0))
+        created_at = utc_ts_to_app_local(int(event.get("created_at") or 0))
         buckets[(created_at.weekday(), created_at.hour)] += 1
 
     max_value = max(buckets.values()) if buckets else 0
@@ -760,7 +783,7 @@ def build_dashboard_data() -> dict[str, Any]:
         return {
             "group_users_count": 0,
             "periods": [],
-            "updated_at": datetime.now().strftime("%d.%m.%Y %H:%M:%S"),
+            "updated_at": datetime.now(app_timezone()).strftime("%d.%m.%Y %H:%M:%S"),
         }
 
     month_period = periods[-1]
@@ -789,7 +812,7 @@ def build_dashboard_data() -> dict[str, Any]:
     return {
         "group_users_count": len(group_users),
         "periods": period_reports,
-        "updated_at": datetime.now().strftime("%d.%m.%Y %H:%M:%S"),
+        "updated_at": datetime.now(app_timezone()).strftime("%d.%m.%Y %H:%M:%S"),
     }
 
 
@@ -854,7 +877,7 @@ def build_period_data(
                 "date_range": "Менеджеры группы Шымкент не найдены",
                 "rows": [],
                 "totals": {},
-                "updated_at": datetime.now().strftime("%d.%m.%Y %H:%M:%S"),
+                "updated_at": datetime.now(app_timezone()).strftime("%d.%m.%Y %H:%M:%S"),
             },
         }
 
@@ -910,7 +933,7 @@ def build_period_data(
     problem_deals = build_problem_deals(events, group_users)
     risk_anti_rating = build_risk_anti_rating(manager_details)
     funnel = build_funnel(manager_details)
-    updated_at = datetime.now().strftime("%d.%m.%Y %H:%M:%S")
+    updated_at = datetime.now(app_timezone()).strftime("%d.%m.%Y %H:%M:%S")
 
     if progress_callback:
         progress_callback(100, "Готово")
