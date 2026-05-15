@@ -532,6 +532,38 @@ def build_comparison(current_report: pd.DataFrame, previous_report: pd.DataFrame
     return comparison
 
 
+def build_per_manager_insights(
+    events: list[dict[str, Any]],
+    period: Period,
+    group_users: dict[int, str],
+    report: pd.DataFrame,
+    previous_report: pd.DataFrame,
+) -> dict[str, dict[str, Any]]:
+    """Метрики периода в разрезе одного менеджера (для фильтра на фронте)."""
+    result: dict[str, dict[str, Any]] = {}
+    for manager_id in group_users:
+        mgr_events = [e for e in events if get_event_manager_id(e) == manager_id]
+        single_user = {manager_id: group_users[manager_id]}
+        cur_df = report[report["ID менеджера"] == manager_id]
+        prev_df = previous_report[previous_report["ID менеджера"] == manager_id]
+
+        heatmap = build_heatmap(mgr_events, single_user)
+        appeal_subset = [e for e in mgr_events if e.get("type") in APPEAL_EVENT_TYPES]
+        appeals_heatmap = build_event_type_heatmap(appeal_subset)
+
+        result[str(manager_id)] = {
+            "totals": dataframe_totals(cur_df),
+            "comparison": build_comparison(cur_df, prev_df),
+            "daily_dynamics": build_daily_dynamics(mgr_events, period, single_user),
+            "heatmap": heatmap,
+            "top_activity_hours": build_top_activity_hours(heatmap),
+            "appeals_heatmap": appeals_heatmap,
+            "top_appeal_hours": build_top_activity_hours(appeals_heatmap),
+            "appeal_summary": build_appeal_summary(appeal_subset),
+        }
+    return result
+
+
 def build_daily_dynamics(events: list[dict[str, Any]], period: Period, group_users: dict[int, str]) -> list[dict[str, Any]]:
     dynamics: dict[str, dict[str, int]] = defaultdict(lambda: {column: 0 for column in METRIC_COLUMNS})
     current_date = period.started_at.date()
@@ -838,6 +870,7 @@ def empty_dashboard() -> dict[str, Any]:
                 "problem_deals": [],
                 "risk_anti_rating": [],
                 "funnel": [],
+                "per_manager_insights": {},
                 "updated_at": "-",
             }
         ],
@@ -877,6 +910,7 @@ def build_period_data(
                 "date_range": "Менеджеры группы Шымкент не найдены",
                 "rows": [],
                 "totals": {},
+                "per_manager_insights": {},
                 "updated_at": datetime.now(app_timezone()).strftime("%d.%m.%Y %H:%M:%S"),
             },
         }
@@ -933,6 +967,9 @@ def build_period_data(
     problem_deals = build_problem_deals(events, group_users)
     risk_anti_rating = build_risk_anti_rating(manager_details)
     funnel = build_funnel(manager_details)
+    per_manager_insights = build_per_manager_insights(
+        events, period, group_users, report, previous_report
+    )
     updated_at = datetime.now(app_timezone()).strftime("%d.%m.%Y %H:%M:%S")
 
     if progress_callback:
@@ -961,6 +998,7 @@ def build_period_data(
             "problem_deals": problem_deals,
             "risk_anti_rating": risk_anti_rating,
             "funnel": funnel,
+            "per_manager_insights": per_manager_insights,
             "updated_at": updated_at,
         },
         "selected": {

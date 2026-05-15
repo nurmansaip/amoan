@@ -624,6 +624,9 @@
     <div class="manager-filter">
       <label>
         Фильтр по менеджеру
+        <span class="hint" style="display:block;font-weight:400;margin-top:4px;opacity:0.85;">
+          При выборе менеджера ниже пересчитываются сводка за период, сравнение с предыдущим периодом, динамика по дням и обе теплокарты — только по нему.
+        </span>
         <select id="manager-filter">
           <option value="">Все менеджеры</option>
           {% for period in dashboard.periods %}
@@ -673,7 +676,7 @@
           </div>
         </div>
 
-        <div class="totals">
+        <div class="totals js-filter-totals">
           {% for label, value in period.totals.items() %}
             <div class="metric">
               <span class="metric-value">{{ value }}</span>
@@ -685,7 +688,7 @@
         <div class="insight-grid">
           <div class="insight-card">
             <h3>Сравнение с предыдущим периодом</h3>
-            <ul class="compact-list">
+            <ul class="compact-list js-filter-comparison">
               {% for item in period.comparison %}
                 <li>
                   <span>{{ item.metric }}</span>
@@ -701,7 +704,7 @@
 
           <div class="insight-card">
             <h3>Динамика по дням</h3>
-            <div class="bars">
+            <div class="bars js-filter-daily-bars">
               {% for day in period.daily_dynamics %}
                 <div class="bar-row">
                   <span>{{ day.date }}</span>
@@ -799,7 +802,7 @@
               </span>
               <span>Больше</span>
             </div>
-            <div class="heatmap">
+            <div class="heatmap js-filter-heatmap-activity">
               {% if period.heatmap %}
                 <div class="heatmap-row header">
                   <span></span>
@@ -822,7 +825,7 @@
               {% endfor %}
             </div>
             <h3 style="margin-top: 16px;">Самые активные часы</h3>
-            <ul class="compact-list">
+            <ul class="compact-list js-filter-top-activity">
               {% for item in period.top_activity_hours %}
                 <li><span>{{ item.weekday }}, {{ item.hour }}</span><strong>{{ item.value }} действий</strong></li>
               {% else %}
@@ -837,7 +840,7 @@
               Показывает, когда приходят входящие обращения: новые лиды, входящие звонки и входящие сообщения.
               Время по часовому поясу приложения (по умолчанию Asia/Almaty).
             </p>
-            <ul class="compact-list" style="margin-bottom: 12px;">
+            <ul class="compact-list js-filter-appeal-summary" style="margin-bottom: 12px;">
               {% for label, value in period.appeal_summary.items() %}
                 <li><span>{{ label }}</span><strong>{{ value }}</strong></li>
               {% else %}
@@ -855,7 +858,7 @@
               </span>
               <span>Больше</span>
             </div>
-            <div class="heatmap">
+            <div class="heatmap js-filter-heatmap-appeals">
               {% if period.appeals_heatmap %}
                 <div class="heatmap-row header">
                   <span></span>
@@ -878,7 +881,7 @@
               {% endfor %}
             </div>
             <h3 style="margin-top: 16px;">Пиковые часы обращений</h3>
-            <ul class="compact-list">
+            <ul class="compact-list js-filter-top-appeals">
               {% for item in period.top_appeal_hours %}
                 <li><span>{{ item.weekday }}, {{ item.hour }}</span><strong>{{ item.value }} обращ.</strong></li>
               {% else %}
@@ -974,6 +977,15 @@
             {% endfor %}
           </div>
         {% endif %}
+        <script type="application/json" class="filter-json-team-totals">{{ period.totals | default({}) | tojson }}</script>
+        <script type="application/json" class="filter-json-team-comparison">{{ period.comparison | default([]) | tojson }}</script>
+        <script type="application/json" class="filter-json-team-daily">{{ period.daily_dynamics | default([]) | tojson }}</script>
+        <script type="application/json" class="filter-json-team-heatmap">{{ period.heatmap | default([]) | tojson }}</script>
+        <script type="application/json" class="filter-json-team-top-act">{{ period.top_activity_hours | default([]) | tojson }}</script>
+        <script type="application/json" class="filter-json-team-app-hm">{{ period.appeals_heatmap | default([]) | tojson }}</script>
+        <script type="application/json" class="filter-json-team-top-ap">{{ period.top_appeal_hours | default([]) | tojson }}</script>
+        <script type="application/json" class="filter-json-team-app-sum">{{ period.appeal_summary | default({}) | tojson }}</script>
+        <script type="application/json" class="filter-json-per-manager">{{ period.per_manager_insights | default({}) | tojson }}</script>
       </section>
     {% endfor %}
   </main>
@@ -1005,12 +1017,178 @@
     {% endif %}
 
     const managerFilter = document.getElementById("manager-filter");
+
+    function parseJsonScript(el) {
+      if (!el || !el.textContent.trim()) return null;
+      try {
+        return JSON.parse(el.textContent);
+      } catch (e) {
+        return null;
+      }
+    }
+
+    function renderTotals(container, totals) {
+      if (!container || !totals) return;
+      const labels = Object.keys(totals);
+      container.innerHTML = labels.map((label) => `
+        <div class="metric">
+          <span class="metric-value">${totals[label]}</span>
+          <span class="metric-label">${label}</span>
+        </div>`).join("");
+    }
+
+    function renderComparison(ul, items) {
+      if (!ul) return;
+      if (!items || !items.length) {
+        ul.innerHTML = "<li><span>Нет данных для сравнения</span><strong>-</strong></li>";
+        return;
+      }
+      ul.innerHTML = items.map((item) => {
+        const cls = item.diff >= 0 ? "up" : "down";
+        const sign = item.diff >= 0 ? "+" : "";
+        return `<li><span>${item.metric}</span><strong class="delta ${cls}">${item.current} (${sign}${item.diff})</strong></li>`;
+      }).join("");
+    }
+
+    function renderDailyDynamics(container, days, totals) {
+      if (!container) return;
+      const totalActs = totals && totals["Действия в amoCRM"] ? totals["Действия в amoCRM"] : 0;
+      if (!days || !days.length) {
+        container.innerHTML = '<div class="date-range">Нет данных</div>';
+        return;
+      }
+      container.innerHTML = days.map((day) => {
+        const v = day["Действия в amoCRM"] || 0;
+        const pct = totalActs ? Math.round((v / totalActs) * 1000) / 10 : 0;
+        return `<div class="bar-row"><span>${day.date}</span><div class="bar-track"><div class="bar-fill" style="width: ${pct}%"></div></div><strong>${v}</strong></div>`;
+      }).join("");
+    }
+
+    function renderHeatmap(container, rows, valueWord) {
+      if (!container) return;
+      if (!rows || !rows.length) {
+        container.innerHTML = '<div class="date-range">Нет данных</div>';
+        return;
+      }
+      let html = "<div class=\"heatmap-row header\"><span></span>";
+      for (const h of rows[0].hours) {
+        const hh = String(h.hour).padStart(2, "0");
+        html += `<span class="hour-label">${hh}:00</span>`;
+      }
+      html += "</div>";
+      for (const row of rows) {
+        html += `<div class="heatmap-row"><span>${row.weekday}</span>`;
+        for (const hour of row.hours) {
+          const intensity = 0.12 + hour.intensity * 0.88;
+          const hh = String(hour.hour).padStart(2, "0");
+          const title = `${row.weekday} ${hh}:00 · ${hour.value} ${valueWord}`;
+          const inner = hour.value ? hour.value : "";
+          html += `<span class="heat-cell" title="${title}" style="--intensity: ${intensity}">${inner}</span>`;
+        }
+        html += "</div>";
+      }
+      container.innerHTML = html;
+    }
+
+    function renderTopHours(ul, items, suffix) {
+      if (!ul) return;
+      if (!items || !items.length) {
+        ul.innerHTML = `<li><span>Нет активности</span><strong>0</strong></li>`;
+        return;
+      }
+      ul.innerHTML = items.map((i) => `<li><span>${i.weekday}, ${i.hour}</span><strong>${i.value} ${suffix}</strong></li>`).join("");
+    }
+
+    function renderAppealSummary(ul, summary) {
+      if (!ul) return;
+      const entries = Object.entries(summary || {});
+      if (!entries.length) {
+        ul.innerHTML = "<li><span>Обращений нет</span><strong>0</strong></li>";
+        return;
+      }
+      ul.innerHTML = entries.map(([k, v]) => `<li><span>${k}</span><strong>${v}</strong></li>`).join("");
+    }
+
+    function captureSnapshots(card) {
+      return {
+        totals: card.querySelector(".js-filter-totals")?.innerHTML ?? "",
+        comparison: card.querySelector(".js-filter-comparison")?.innerHTML ?? "",
+        daily: card.querySelector(".js-filter-daily-bars")?.innerHTML ?? "",
+        heatmapAct: card.querySelector(".js-filter-heatmap-activity")?.innerHTML ?? "",
+        topAct: card.querySelector(".js-filter-top-activity")?.innerHTML ?? "",
+        appealSum: card.querySelector(".js-filter-appeal-summary")?.innerHTML ?? "",
+        heatmapApp: card.querySelector(".js-filter-heatmap-appeals")?.innerHTML ?? "",
+        topApp: card.querySelector(".js-filter-top-appeals")?.innerHTML ?? "",
+      };
+    }
+
+    function applyManagerInsights(card, managerId) {
+      const snapshot = card._managerFilterSnapshot;
+      const perMap = parseJsonScript(card.querySelector(".filter-json-per-manager")) || {};
+
+      if (!managerId) {
+        if (snapshot) {
+          const applyHtml = (sel, html) => {
+            const el = card.querySelector(sel);
+            if (el) el.innerHTML = html;
+          };
+          applyHtml(".js-filter-totals", snapshot.totals);
+          applyHtml(".js-filter-comparison", snapshot.comparison);
+          applyHtml(".js-filter-daily-bars", snapshot.daily);
+          applyHtml(".js-filter-heatmap-activity", snapshot.heatmapAct);
+          applyHtml(".js-filter-top-activity", snapshot.topAct);
+          applyHtml(".js-filter-appeal-summary", snapshot.appealSum);
+          applyHtml(".js-filter-heatmap-appeals", snapshot.heatmapApp);
+          applyHtml(".js-filter-top-appeals", snapshot.topApp);
+        }
+        return;
+      }
+
+      const m = perMap[managerId];
+      const totalsEl = card.querySelector(".js-filter-totals");
+      const compEl = card.querySelector(".js-filter-comparison");
+      const dailyEl = card.querySelector(".js-filter-daily-bars");
+      const hmActEl = card.querySelector(".js-filter-heatmap-activity");
+      const topActEl = card.querySelector(".js-filter-top-activity");
+      const appSumEl = card.querySelector(".js-filter-appeal-summary");
+      const hmAppEl = card.querySelector(".js-filter-heatmap-appeals");
+      const topAppEl = card.querySelector(".js-filter-top-appeals");
+
+      if (!m) {
+        renderTotals(totalsEl, {});
+        renderComparison(compEl, []);
+        renderDailyDynamics(dailyEl, [], {});
+        renderHeatmap(hmActEl, [], "действий");
+        renderTopHours(topActEl, [], "действий");
+        renderAppealSummary(appSumEl, {});
+        renderHeatmap(hmAppEl, [], "обращений");
+        renderTopHours(topAppEl, [], "обращ.");
+        return;
+      }
+
+      renderTotals(totalsEl, m.totals || {});
+      renderComparison(compEl, m.comparison || []);
+      renderDailyDynamics(dailyEl, m.daily_dynamics || [], m.totals || {});
+      renderHeatmap(hmActEl, m.heatmap || [], "действий");
+      renderTopHours(topActEl, m.top_activity_hours || [], "действий");
+      renderAppealSummary(appSumEl, m.appeal_summary || {});
+      renderHeatmap(hmAppEl, m.appeals_heatmap || [], "обращений");
+      renderTopHours(topAppEl, m.top_appeal_hours || [], "обращ.");
+    }
+
+    document.querySelectorAll(".period-card").forEach((card) => {
+      card._managerFilterSnapshot = captureSnapshots(card);
+    });
+
     if (managerFilter) {
       managerFilter.addEventListener("change", () => {
         const selectedManager = managerFilter.value;
         document.querySelectorAll("[data-manager-id]").forEach((element) => {
           const isVisible = !selectedManager || element.dataset.managerId === selectedManager;
           element.style.display = isVisible ? "" : "none";
+        });
+        document.querySelectorAll(".period-card").forEach((card) => {
+          applyManagerInsights(card, selectedManager);
         });
       });
     }
