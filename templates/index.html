@@ -306,7 +306,7 @@
 
     .heatmap-row {
       display: grid;
-      grid-template-columns: 54px repeat(13, 58px);
+      grid-template-columns: 54px repeat(24, 58px);
       gap: 6px;
       align-items: center;
       color: var(--muted);
@@ -785,7 +785,7 @@
           <div class="insight-card wide">
             <h3>Активность по дням и часам</h3>
             <p class="hint">
-              Строки — дни недели, столбцы — часы. Чем ярче клетка, тем больше действий amoCRM было в этот час.
+              Строки — дни недели, столбцы — часы 00:00-23:00. Чем ярче клетка, тем больше действий amoCRM было в этот час.
             </p>
             <div class="heat-legend">
               <span>Меньше</span>
@@ -856,7 +856,7 @@
             </div>
             <div class="heatmap">
               {% if period.appeals_heatmap %}
-                <div class="heatmap-row header" style="grid-template-columns: 54px repeat(24, 58px);">
+                <div class="heatmap-row header">
                   <span></span>
                   {% for hour in period.appeals_heatmap[0].hours %}
                     <span class="hour-label">{{ "%02d:00"|format(hour.hour) }}</span>
@@ -864,7 +864,7 @@
                 </div>
               {% endif %}
               {% for row in period.appeals_heatmap %}
-                <div class="heatmap-row" style="grid-template-columns: 54px repeat(24, 58px);">
+                <div class="heatmap-row">
                   <span>{{ row.weekday }}</span>
                   {% for hour in row.hours %}
                     <span class="heat-cell" title="{{ row.weekday }} {{ "%02d:00"|format(hour.hour) }} · {{ hour.value }} обращений" style="--intensity: {{ 0.12 + hour.intensity * 0.88 }}">

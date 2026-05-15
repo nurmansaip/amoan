@@ -6,6 +6,7 @@ from typing import Any, Optional
 
 import requests
 from requests import HTTPError
+from requests.exceptions import ConnectionError, Timeout
 from dotenv import load_dotenv
 
 
@@ -57,12 +58,11 @@ class AmoCRMClient:
         # amoCRM чувствителен к частым запросам, поэтому держим небольшой интервал.
         time.sleep(self.request_delay)
 
-        response = self.session.request(
+        response = self._send_with_retries(
             method,
             url,
             headers=headers,
             params=params,
-            timeout=30,
         )
 
         if response.status_code == 401 and retry_after_refresh:
@@ -79,6 +79,30 @@ class AmoCRMClient:
             return {}
 
         return response.json()
+
+    def _send_with_retries(
+        self,
+        method: str,
+        url: str,
+        headers: dict[str, str],
+        params: Optional[list[tuple[str, Any]]] = None,
+    ) -> requests.Response:
+        last_error: Optional[Exception] = None
+        for attempt in range(1, 5):
+            try:
+                return self.session.request(
+                    method,
+                    url,
+                    headers=headers,
+                    params=params,
+                    timeout=60,
+                )
+            except (ConnectionError, Timeout) as exc:
+                last_error = exc
+                # amoCRM иногда закрывает длинные выгрузки без ответа. Повторяем запрос с паузой.
+                time.sleep(min(2 ** attempt, 10))
+
+        raise RuntimeError(f"amoCRM не ответила после нескольких попыток: {last_error}") from last_error
 
     def _load_or_create_tokens(self) -> dict[str, Any]:
         tokens = self._load_tokens()

@@ -548,7 +548,7 @@ def build_heatmap(events: list[dict[str, Any]], group_users: dict[int, str]) -> 
     rows = []
     for weekday in range(7):
         hours = []
-        for hour in range(9, 22):
+        for hour in range(0, 24):
             value = buckets.get((weekday, hour), 0)
             intensity = round(value / max_value, 2) if max_value else 0
             hours.append({"hour": hour, "value": value, "intensity": intensity})
@@ -595,7 +595,7 @@ def build_top_activity_hours(heatmap: list[dict[str, Any]]) -> list[dict[str, An
                 hours.append(
                     {
                         "weekday": row["weekday"],
-                        "hour": f"{hour['hour']}:00",
+                        "hour": f"{hour['hour']:02d}:00",
                         "value": hour["value"],
                     }
                 )
