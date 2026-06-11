@@ -832,7 +832,7 @@
         {% endif %}
       </button>
       <p class="actions-hint">
-        <strong>Активность</strong> — максимум <strong>3 месяца</strong>. Для полугода/года только <strong>«Собрать конверсию»</strong>.
+        <strong>Активность</strong> — звонки, чаты, теплокарты. За период &gt; 3 мес. сбор дольше; сравнение с прошлым периодом и задачи отключаются.
       </p>
       <p id="period-hint" class="actions-hint period-hint" hidden></p>
     </form>
@@ -1340,13 +1340,10 @@
       return `${year}-${month}-${day}`;
     }
 
-    const ACTIVITY_MAX_DAYS = 93;
-    const refreshRunning = {{ dashboard.refresh.running | tojson }};
+    const ACTIVITY_SLOW_DAYS = 93;
     const dateFromInput = document.getElementById("date-from");
     const dateToInput = document.getElementById("date-to");
     const periodHint = document.getElementById("period-hint");
-    const activityButton = document.querySelector('button[formaction*="activity"]');
-    const actionsForm = document.querySelector("form.actions");
 
     function periodLengthDays() {
       if (!dateFromInput?.value || !dateToInput?.value) {
@@ -1362,21 +1359,18 @@
 
     function updatePeriodHints() {
       const days = periodLengthDays();
-      const tooLong = days > ACTIVITY_MAX_DAYS;
 
       if (periodHint) {
-        if (tooLong && days > 0) {
+        if (days > ACTIVITY_SLOW_DAYS) {
+          const estMin = Math.max(30, Math.round(days * 0.4));
           periodHint.hidden = false;
           periodHint.textContent =
-            `Выбрано ${days} дн. — «Собрать активность» недоступна. Для этого периода нажмите «Собрать конверсию».`;
+            `Период ${days} дн. — активность соберётся, но это займёт примерно ${estMin}–${estMin + 30} мин. ` +
+            "Сравнение с прошлым периодом и задачи будут отключены.";
         } else {
           periodHint.hidden = true;
           periodHint.textContent = "";
         }
-      }
-
-      if (activityButton && !refreshRunning) {
-        activityButton.disabled = tooLong;
       }
     }
 
@@ -1398,17 +1392,6 @@
     dateFromInput?.addEventListener("change", updatePeriodHints);
     dateToInput?.addEventListener("change", updatePeriodHints);
     updatePeriodHints();
-
-    actionsForm?.addEventListener("submit", (event) => {
-      const submitter = event.submitter;
-      if (!submitter?.getAttribute("formaction")?.includes("activity")) {
-        return;
-      }
-      if (periodLengthDays() > ACTIVITY_MAX_DAYS) {
-        event.preventDefault();
-        updatePeriodHints();
-      }
-    });
 
     function setConversionManagerChecks(checked) {
       document.querySelectorAll(".conversion-manager-checkbox").forEach((checkbox) => {

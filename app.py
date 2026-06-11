@@ -12,7 +12,6 @@ from dotenv import load_dotenv
 from flask import Flask, Response, jsonify, redirect, render_template, request, url_for
 
 from analytics import (
-    ACTIVITY_MAX_PERIOD_DAYS,
     CUSTOM_PERIOD_KEY,
     build_activity_period_data,
     build_conversion_period_data,
@@ -30,7 +29,7 @@ BASE_DIR = Path(__file__).resolve().parent
 CACHE_PATH = Path(getenv("CACHE_PATH", "") or BASE_DIR / "dashboard_cache.json")
 APP_USERNAME = getenv("APP_USERNAME", "").strip()
 APP_PASSWORD = getenv("APP_PASSWORD", "").strip()
-APP_VERSION = getenv("APP_VERSION", "ui-v9-form-dates-fix-2026-06-11")
+APP_VERSION = getenv("APP_VERSION", "ui-v10-activity-long-2026-06-11")
 REFRESH_LOCK = Lock()
 REFRESH_STATE = {
     "running": False,
@@ -41,8 +40,15 @@ REFRESH_STATE = {
     "message": "",
     "error": "",
     "started_at": 0,
+    "period_days": 0,
 }
 REFRESH_TIMEOUT_SECONDS = 40 * 60
+
+
+def refresh_timeout_seconds(mode: str, period_days: int = 0) -> int:
+    if mode == "activity" and period_days > 93:
+        return max(90 * 60, period_days * 60)
+    return REFRESH_TIMEOUT_SECONDS
 
 
 def is_auth_enabled():
@@ -159,6 +165,7 @@ def set_refresh_state(
     percent=0,
     message="",
     error="",
+    period_days=0,
 ):
     with REFRESH_LOCK:
         REFRESH_STATE["running"] = running
@@ -168,10 +175,13 @@ def set_refresh_state(
         REFRESH_STATE["percent"] = percent
         REFRESH_STATE["message"] = message
         REFRESH_STATE["error"] = error
+        if period_days:
+            REFRESH_STATE["period_days"] = period_days
         if running:
             REFRESH_STATE["started_at"] = int(time.time())
         else:
             REFRESH_STATE["started_at"] = 0
+            REFRESH_STATE["period_days"] = 0
 
 
 def get_refresh_state():
@@ -179,18 +189,18 @@ def get_refresh_state():
         state = deepcopy(REFRESH_STATE)
         if state["running"] and not state.get("started_at"):
             REFRESH_STATE["running"] = False
-            REFRESH_STATE["message"] = (
-                "Зависший сбор сброшен. Для периода больше 3 месяцев используйте «Собрать конверсию»."
-            )
+            REFRESH_STATE["message"] = "Зависший сбор сброшен. Выберите период и запустите сбор снова."
             REFRESH_STATE["error"] = REFRESH_STATE["message"]
             state = deepcopy(REFRESH_STATE)
         elif state["running"] and state.get("started_at"):
             elapsed = int(time.time()) - int(state["started_at"])
-            if elapsed > REFRESH_TIMEOUT_SECONDS:
+            timeout = refresh_timeout_seconds(state.get("mode", ""), int(state.get("period_days") or 0))
+            if elapsed > timeout:
+                minutes = timeout // 60
                 REFRESH_STATE["running"] = False
                 REFRESH_STATE["error"] = (
-                    "Сбор остановлен: превышен лимит 40 минут. "
-                    "Для периода больше 3 месяцев используйте «Собрать конверсию»."
+                    f"Сбор остановлен: превышен лимит {minutes} минут. "
+                    "Попробуйте более короткий период или запустите сбор снова."
                 )
                 REFRESH_STATE["message"] = REFRESH_STATE["error"]
                 REFRESH_STATE["started_at"] = 0
@@ -268,10 +278,6 @@ def parse_conversion_manager_ids():
     return manager_ids
 
 
-def format_date_ru(iso_date: str) -> str:
-    return datetime.strptime(iso_date, "%Y-%m-%d").strftime("%d.%m.%Y")
-
-
 def apply_submitted_form_state(
     dashboard,
     date_from: Optional[str] = None,
@@ -321,6 +327,8 @@ def rebuild_in_background(mode, period_key, date_from, date_to, conversion_manag
         "conversion": "конверсии",
     }
 
+    period_days = period_length_days(build_custom_period(date_from, date_to))
+
     try:
         set_refresh_state(
             True,
@@ -329,6 +337,7 @@ def rebuild_in_background(mode, period_key, date_from, date_to, conversion_manag
             period_title=period_title,
             percent=1,
             message=f"Запущен сбор {mode_labels.get(mode, 'данных')}: {period_title}",
+            period_days=period_days,
         )
 
         def on_progress(percent, message):
@@ -339,6 +348,7 @@ def rebuild_in_background(mode, period_key, date_from, date_to, conversion_manag
                 period_title=period_title,
                 percent=percent,
                 message=message,
+                period_days=period_days,
             )
 
         if mode == "activity":
@@ -400,19 +410,6 @@ def start_refresh(mode):
         )
         dashboard["error"] = error
         return render_template("index.html", dashboard=attach_refresh_state(dashboard)), 400
-
-    if mode == "activity":
-        period = build_custom_period(date_from, date_to)
-        days = period_length_days(period)
-        if days > ACTIVITY_MAX_PERIOD_DAYS:
-            dashboard = ensure_group_managers(load_dashboard_cache())
-            apply_submitted_form_state(dashboard, date_from, date_to, conversion_manager_ids)
-            dashboard["error"] = (
-                f"Период {format_date_ru(date_from)} — {format_date_ru(date_to)} ({days} дн.) "
-                f"слишком длинный для активности (лимит {ACTIVITY_MAX_PERIOD_DAYS} дн.). "
-                "Нажмите «Собрать конверсию» — для полугода и года нужна она, не активность."
-            )
-            return render_template("index.html", dashboard=attach_refresh_state(dashboard)), 400
 
     if mode == "conversion":
         if not conversion_manager_ids:
