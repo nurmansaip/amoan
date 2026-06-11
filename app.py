@@ -23,7 +23,7 @@ BASE_DIR = Path(__file__).resolve().parent
 CACHE_PATH = Path(getenv("CACHE_PATH", "") or BASE_DIR / "dashboard_cache.json")
 APP_USERNAME = getenv("APP_USERNAME", "").strip()
 APP_PASSWORD = getenv("APP_PASSWORD", "").strip()
-APP_VERSION = getenv("APP_VERSION", "ui-v7-split-refresh-2026-06-02")
+APP_VERSION = getenv("APP_VERSION", "ui-v7-period-presets-2026-06-02")
 REFRESH_LOCK = Lock()
 REFRESH_STATE = {
     "running": False,

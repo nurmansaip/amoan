@@ -140,6 +140,29 @@
       line-height: 1.45;
     }
 
+    .period-presets {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: end;
+    }
+
+    .period-presets button {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 9px 12px;
+      background: var(--card);
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    .period-presets button:hover {
+      border-color: rgba(56, 189, 248, 0.45);
+      color: #bae6fd;
+    }
+
     .progress-card {
       display: none;
       margin-bottom: 20px;
@@ -676,12 +699,19 @@
     <form class="actions" method="post">
       <label class="field">
         Дата начала
-        <input type="date" name="date_from" value="{{ dashboard.selected.date_from }}" required>
+        <input type="date" id="date-from" name="date_from" value="{{ dashboard.selected.date_from }}" required>
       </label>
       <label class="field">
         Дата окончания
-        <input type="date" name="date_to" value="{{ dashboard.selected.date_to }}" required>
+        <input type="date" id="date-to" name="date_to" value="{{ dashboard.selected.date_to }}" required>
       </label>
+      <div class="period-presets">
+        <span class="field" style="gap:8px;">Быстрый период</span>
+        <button type="button" data-months="1">1 мес</button>
+        <button type="button" data-months="3">3 мес</button>
+        <button type="button" data-months="6">6 мес</button>
+        <button type="button" data-months="12">1 год</button>
+      </div>
       <button
         type="submit"
         class="primary"
@@ -706,8 +736,9 @@
         {% endif %}
       </button>
       <p class="actions-hint">
-        Активность — события и теплокарты (дольше). Конверсия — только сделки, обычно за 10–60 секунд.
-        Данные по каждой вкладке сохраняются отдельно и не перезаписывают друг друга.
+        Для конверсии за <strong>полгода или год</strong> нажмите быстрый период → <strong>«Собрать конверсию»</strong>
+        (ожидание ~3–8 мин, только сделки). «Собрать активность» на длинных периодах не используйте — там события, это очень долго.
+        Вкладки сохраняют данные отдельно.
       </p>
     </form>
 
@@ -1181,6 +1212,29 @@
     </div>
   </main>
   <script>
+    function formatDateInput(date) {
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, "0");
+      const day = String(date.getDate()).padStart(2, "0");
+      return `${year}-${month}-${day}`;
+    }
+
+    function setPeriodPreset(months) {
+      const dateTo = document.getElementById("date-to");
+      const dateFrom = document.getElementById("date-from");
+      const end = new Date();
+      const start = new Date();
+      start.setMonth(start.getMonth() - months);
+      dateTo.value = formatDateInput(end);
+      dateFrom.value = formatDateInput(start);
+    }
+
+    document.querySelectorAll(".period-presets button[data-months]").forEach((button) => {
+      button.addEventListener("click", () => {
+        setPeriodPreset(Number(button.dataset.months));
+      });
+    });
+
     async function pollStatus() {
       const response = await fetch("{{ url_for('status') }}");
       const status = await response.json();
