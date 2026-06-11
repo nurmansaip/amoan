@@ -1,9 +1,10 @@
 import re
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime, time, timedelta
 from os import getenv
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 from zoneinfo import ZoneInfo
 
 import pandas as pd
@@ -64,6 +65,8 @@ APPEAL_EVENT_TYPES = (
     "incoming_chat_message",
 )
 CUSTOM_PERIOD_KEY = "custom"
+EVENTS_PAGE_LIMIT = 250
+LEADS_PAGE_LIMIT = 250
 METRIC_COLUMNS = [
     "Действия в amoCRM",
     "Звонки",
@@ -212,7 +215,7 @@ def fetch_events(
         params: list[tuple[str, Any]] = [
             ("filter[created_at][from]", started_ts),
             ("filter[created_at][to]", ended_ts),
-            ("limit", 100),
+            ("limit", EVENTS_PAGE_LIMIT),
             ("page", page),
         ]
         for user_id in user_ids:
@@ -335,7 +338,7 @@ def fetch_leads(
         params: list[tuple[str, Any]] = [
             ("filter[created_at][from]", started_ts),
             ("filter[created_at][to]", ended_ts),
-            ("limit", 250),
+            ("limit", LEADS_PAGE_LIMIT),
             ("page", page),
         ]
         for user_id in user_ids:
@@ -1095,84 +1098,111 @@ def empty_dashboard() -> dict[str, Any]:
     }
 
 
-def build_period_data(
+def resolve_period(
     period_key: str,
-    progress_callback=None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+) -> Period:
+    if period_key == CUSTOM_PERIOD_KEY:
+        if not date_from or not date_to:
+            raise ValueError("Укажите дату начала и дату окончания")
+        return build_custom_period(date_from, date_to)
+
+    return build_period_by_key(period_key)
+
+
+def period_date_range(period: Period) -> str:
+    return (
+        f"{period.started_at.strftime('%d.%m.%Y %H:%M')} - "
+        f"{period.ended_at.strftime('%d.%m.%Y %H:%M')}"
+    )
+
+
+def selected_dates_payload(date_from: Optional[str], date_to: Optional[str]) -> dict[str, str]:
+    return {
+        "date_from": date_from or "",
+        "date_to": date_to or "",
+    }
+
+
+def load_group_users(client: AmoCRMClient) -> dict[int, str]:
+    users_by_id = fetch_users(client)
+    return filter_group_users(users_by_id)
+
+
+def empty_group_payload(period_key: str, period: Period) -> dict[str, Any]:
+    return {
+        "group_users_count": 0,
+        "period": {
+            "key": period_key,
+            "title": period.title,
+            "date_range": "Менеджеры группы Шымкент не найдены",
+            "rows": [],
+            "totals": {},
+            "per_manager_insights": {},
+            "updated_at": datetime.now(app_timezone()).strftime("%d.%m.%Y %H:%M:%S"),
+        },
+    }
+
+
+def fetch_events_parallel(
+    started_ts: int,
+    ended_ts: int,
+    previous_started_ts: int,
+    previous_ended_ts: int,
+    user_ids: list[int],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    def _load_period(start_ts: int, end_ts: int) -> list[dict[str, Any]]:
+        client = AmoCRMClient()
+        return fetch_events(client, start_ts, end_ts, user_ids)
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        current_future = executor.submit(_load_period, started_ts, ended_ts)
+        previous_future = executor.submit(_load_period, previous_started_ts, previous_ended_ts)
+        return current_future.result(), previous_future.result()
+
+
+def build_activity_period_data(
+    period_key: str,
+    progress_callback: Optional[Callable[[int, str], None]] = None,
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
 ) -> dict[str, Any]:
     client = AmoCRMClient()
-    if period_key == CUSTOM_PERIOD_KEY:
-        if not date_from or not date_to:
-            raise ValueError("Укажите дату начала и дату окончания")
-        period = build_custom_period(date_from, date_to)
-    else:
-        period = build_period_by_key(period_key)
+    period = resolve_period(period_key, date_from, date_to)
 
     if progress_callback:
         progress_callback(5, "Загружаем менеджеров Шымкента")
 
-    users_by_id = fetch_users(client)
-    group_users = filter_group_users(users_by_id)
+    group_users = load_group_users(client)
     if not group_users:
-        return {
-            "group_users_count": 0,
-            "period": {
-                "key": period_key,
-                "title": period.title,
-                "date_range": "Менеджеры группы Шымкент не найдены",
-                "rows": [],
-                "totals": {},
-                "per_manager_insights": {},
-                "updated_at": datetime.now(app_timezone()).strftime("%d.%m.%Y %H:%M:%S"),
-            },
-        }
+        return empty_group_payload(period_key, period)
 
-    def on_page(page: int, events_count: int) -> None:
-        if not progress_callback:
-            return
+    user_ids = list(group_users.keys())
+    previous_period = build_previous_period(period)
 
-        percent = min(80, 10 + page * 3)
-        progress_callback(percent, f"Загружена страница {page}, событий: {events_count}")
+    if progress_callback:
+        progress_callback(
+            15,
+            "Загружаем события за текущий и предыдущий период (параллельно)...",
+        )
 
-    events = fetch_events(
-        client,
+    events, previous_events = fetch_events_parallel(
         period.started_ts,
         period.ended_ts,
-        list(group_users.keys()),
-        progress_callback=on_page,
-    )
-    if progress_callback:
-        progress_callback(82, "Загружаем предыдущий период для сравнения")
-    previous_period = build_previous_period(period)
-    previous_events = fetch_events(
-        client,
         previous_period.started_ts,
         previous_period.ended_ts,
-        list(group_users.keys()),
+        user_ids,
     )
+
     if progress_callback:
-        progress_callback(86, "Загружаем справочник этапов")
+        progress_callback(
+            70,
+            f"Загружено {len(events)} + {len(previous_events)} событий, считаем метрики...",
+        )
+
     status_names = fetch_status_names(client)
-    if progress_callback:
-        progress_callback(90, "Загружаем задачи для проверки просрочек")
-    tasks = fetch_tasks(client, period.started_ts, period.ended_ts, list(group_users.keys()))
-    if progress_callback:
-        progress_callback(92, "Загружаем сделки для конверсии")
-
-    def on_leads_page(page: int, leads_count: int) -> None:
-        if progress_callback:
-            progress_callback(min(93, 92 + page), f"Загружены сделки: {leads_count}")
-
-    leads = fetch_leads(
-        client,
-        period.started_ts,
-        period.ended_ts,
-        list(group_users.keys()),
-        progress_callback=on_leads_page,
-    )
-    if progress_callback:
-        progress_callback(94, "Считаем расширенные метрики и риски")
+    tasks = fetch_tasks(client, period.started_ts, period.ended_ts, user_ids)
 
     report = build_period_report(events, period, group_users)
     previous_report = build_period_report(previous_events, previous_period, group_users)
@@ -1181,12 +1211,7 @@ def build_period_data(
     daily_dynamics = build_daily_dynamics(events, period, group_users)
     heatmap = build_heatmap(events, group_users)
     top_activity_hours = build_top_activity_hours(heatmap)
-    if progress_callback:
-        progress_callback(96, "Строим тепловую карту обращений")
-    appeal_events = [
-        event for event in events
-        if event.get("type") in APPEAL_EVENT_TYPES
-    ]
+    appeal_events = [event for event in events if event.get("type") in APPEAL_EVENT_TYPES]
     appeals_heatmap = build_event_type_heatmap(appeal_events)
     top_appeal_hours = build_top_activity_hours(appeals_heatmap)
     appeal_summary = build_appeal_summary(appeal_events)
@@ -1194,24 +1219,20 @@ def build_period_data(
     problem_deals = build_problem_deals(events, group_users)
     risk_anti_rating = build_risk_anti_rating(manager_details)
     funnel = build_funnel(manager_details)
-    conversion = build_conversion_report(leads, group_users)
     per_manager_insights = build_per_manager_insights(
         events, period, group_users, report, previous_report
     )
     updated_at = datetime.now(app_timezone()).strftime("%d.%m.%Y %H:%M:%S")
 
     if progress_callback:
-        progress_callback(100, "Готово")
+        progress_callback(100, "Активность обновлена")
 
     return {
         "group_users_count": len(group_users),
         "period": {
             "key": period_key,
             "title": period.title,
-            "date_range": (
-                f"{period.started_at.strftime('%d.%m.%Y %H:%M')} - "
-                f"{period.ended_at.strftime('%d.%m.%Y %H:%M')}"
-            ),
+            "date_range": period_date_range(period),
             "rows": report.to_dict(orient="records"),
             "totals": report.drop(columns=["ID менеджера", "Менеджер"]).sum().to_dict(),
             "managers": manager_details,
@@ -1226,12 +1247,89 @@ def build_period_data(
             "problem_deals": problem_deals,
             "risk_anti_rating": risk_anti_rating,
             "funnel": funnel,
-            "conversion": conversion,
             "per_manager_insights": per_manager_insights,
             "updated_at": updated_at,
         },
-        "selected": {
-            "date_from": date_from or "",
-            "date_to": date_to or "",
-        },
+        "selected": selected_dates_payload(date_from, date_to),
     }
+
+
+def build_conversion_period_data(
+    period_key: str,
+    progress_callback: Optional[Callable[[int, str], None]] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+) -> dict[str, Any]:
+    client = AmoCRMClient()
+    period = resolve_period(period_key, date_from, date_to)
+
+    if progress_callback:
+        progress_callback(5, "Загружаем менеджеров Шымкента")
+
+    group_users = load_group_users(client)
+    if not group_users:
+        return empty_group_payload(period_key, period)
+
+    user_ids = list(group_users.keys())
+
+    def on_leads_page(page: int, leads_count: int) -> None:
+        if progress_callback:
+            percent = min(85, 15 + page * 5)
+            progress_callback(percent, f"Загружены сделки: {leads_count}")
+
+    if progress_callback:
+        progress_callback(10, "Загружаем сделки для конверсии...")
+
+    leads = fetch_leads(
+        client,
+        period.started_ts,
+        period.ended_ts,
+        user_ids,
+        progress_callback=on_leads_page,
+    )
+
+    if progress_callback:
+        progress_callback(90, f"Считаем конверсию по {len(leads)} сделкам...")
+
+    conversion = build_conversion_report(leads, group_users)
+    updated_at = datetime.now(app_timezone()).strftime("%d.%m.%Y %H:%M:%S")
+
+    if progress_callback:
+        progress_callback(100, "Конверсия обновлена")
+
+    return {
+        "group_users_count": len(group_users),
+        "period": {
+            "key": period_key,
+            "title": period.title,
+            "date_range": period_date_range(period),
+            "conversion": conversion,
+            "updated_at": updated_at,
+        },
+        "selected": selected_dates_payload(date_from, date_to),
+    }
+
+
+def build_period_data(
+    period_key: str,
+    progress_callback=None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+) -> dict[str, Any]:
+    """Полный сбор активности и конверсии (для обратной совместимости)."""
+    activity_payload = build_activity_period_data(
+        period_key,
+        progress_callback=progress_callback,
+        date_from=date_from,
+        date_to=date_to,
+    )
+    if activity_payload.get("group_users_count", 0) == 0:
+        return activity_payload
+
+    conversion_payload = build_conversion_period_data(
+        period_key,
+        date_from=date_from,
+        date_to=date_to,
+    )
+    activity_payload["period"].update(conversion_payload["period"])
+    return activity_payload

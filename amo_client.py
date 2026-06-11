@@ -17,11 +17,13 @@ class AmoCRMClient:
         self,
         env_path: str = ".env",
         tokens_path: str = "tokens.json",
-        request_delay: float = 0.1,
+        request_delay: Optional[float] = None,
     ) -> None:
         self.base_dir = Path(__file__).resolve().parent
         self.env_path = self.base_dir / env_path
         self.tokens_path = Path(getenv("TOKENS_PATH", "") or self.base_dir / tokens_path)
+        if request_delay is None:
+            request_delay = float(getenv("AMO_REQUEST_DELAY", "0.05"))
         self.request_delay = request_delay
         self.session = requests.Session()
 

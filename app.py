@@ -9,7 +9,12 @@ from threading import Lock, Thread
 from dotenv import load_dotenv
 from flask import Flask, Response, jsonify, redirect, render_template, request, url_for
 
-from analytics import CUSTOM_PERIOD_KEY, build_period_data, empty_dashboard
+from analytics import (
+    CUSTOM_PERIOD_KEY,
+    build_activity_period_data,
+    build_conversion_period_data,
+    empty_dashboard,
+)
 
 
 load_dotenv()
@@ -18,10 +23,11 @@ BASE_DIR = Path(__file__).resolve().parent
 CACHE_PATH = Path(getenv("CACHE_PATH", "") or BASE_DIR / "dashboard_cache.json")
 APP_USERNAME = getenv("APP_USERNAME", "").strip()
 APP_PASSWORD = getenv("APP_PASSWORD", "").strip()
-APP_VERSION = getenv("APP_VERSION", "ui-v6-conversion-tab-2026-06-02")
+APP_VERSION = getenv("APP_VERSION", "ui-v7-split-refresh-2026-06-02")
 REFRESH_LOCK = Lock()
 REFRESH_STATE = {
     "running": False,
+    "mode": "",
     "period_key": CUSTOM_PERIOD_KEY,
     "period_title": "",
     "percent": 0,
@@ -134,9 +140,18 @@ def normalize_dashboard(dashboard):
     return normalized
 
 
-def set_refresh_state(running, period_key=CUSTOM_PERIOD_KEY, period_title="", percent=0, message="", error=""):
+def set_refresh_state(
+    running,
+    mode="",
+    period_key=CUSTOM_PERIOD_KEY,
+    period_title="",
+    percent=0,
+    message="",
+    error="",
+):
     with REFRESH_LOCK:
         REFRESH_STATE["running"] = running
+        REFRESH_STATE["mode"] = mode
         REFRESH_STATE["period_key"] = period_key
         REFRESH_STATE["period_title"] = period_title
         REFRESH_STATE["percent"] = percent
@@ -155,68 +170,116 @@ def attach_refresh_state(dashboard):
     return result
 
 
-def update_period_in_cache(period_key, period_payload):
+def merge_period_in_cache(period_key, period_payload):
     dashboard = load_dashboard_cache()
     dashboard["group_users_count"] = max(
         dashboard.get("group_users_count", 0),
         period_payload.get("group_users_count", 0),
     )
-    dashboard["updated_at"] = period_payload["period"]["updated_at"]
 
+    incoming_period = period_payload["period"]
     updated_periods = []
     replaced = False
+
     for period in dashboard["periods"]:
         if period["key"] == period_key:
-            updated_periods.append(period_payload["period"])
+            merged = deepcopy(period)
+            merged.update(incoming_period)
+            merged["key"] = period_key
+            updated_periods.append(merged)
             replaced = True
         else:
             updated_periods.append(period)
 
     if not replaced:
-        updated_periods.append(period_payload["period"])
+        shell = deepcopy(empty_dashboard()["periods"][0])
+        shell.update(incoming_period)
+        shell["key"] = period_key
+        updated_periods.append(shell)
 
     dashboard["periods"] = updated_periods
+    dashboard["updated_at"] = incoming_period.get(
+        "updated_at",
+        datetime.now().strftime("%d.%m.%Y %H:%M:%S"),
+    )
     dashboard["selected"] = period_payload.get("selected", dashboard.get("selected", {}))
     save_dashboard_cache(dashboard)
 
 
-def rebuild_period_in_background(period_key, date_from, date_to):
+def parse_refresh_dates():
+    date_from = request.form.get("date_from", "").strip()
+    date_to = request.form.get("date_to", "").strip()
+    if not date_from or not date_to:
+        return None, None, "Выберите дату начала и дату окончания"
+
     try:
-        period_title = f"{date_from} - {date_to}"
+        datetime.strptime(date_from, "%Y-%m-%d")
+        datetime.strptime(date_to, "%Y-%m-%d")
+    except ValueError:
+        return None, None, "Некорректный формат даты"
+
+    return date_from, date_to, ""
+
+
+def rebuild_in_background(mode, period_key, date_from, date_to):
+    period_title = f"{date_from} - {date_to}"
+    mode_labels = {
+        "activity": "активности",
+        "conversion": "конверсии",
+    }
+
+    try:
         set_refresh_state(
             True,
+            mode=mode,
             period_key=period_key,
             period_title=period_title,
             percent=1,
-            message=f"Запущен сбор данных: {period_title}",
+            message=f"Запущен сбор {mode_labels.get(mode, 'данных')}: {period_title}",
         )
 
         def on_progress(percent, message):
             set_refresh_state(
                 True,
+                mode=mode,
                 period_key=period_key,
                 period_title=period_title,
                 percent=percent,
                 message=message,
             )
 
-        period_payload = build_period_data(
-            period_key,
-            progress_callback=on_progress,
-            date_from=date_from,
-            date_to=date_to,
-        )
-        update_period_in_cache(period_key, period_payload)
+        if mode == "activity":
+            period_payload = build_activity_period_data(
+                period_key,
+                progress_callback=on_progress,
+                date_from=date_from,
+                date_to=date_to,
+            )
+            success_message = f"Активность за период «{period_title}» обновлена."
+        elif mode == "conversion":
+            period_payload = build_conversion_period_data(
+                period_key,
+                progress_callback=on_progress,
+                date_from=date_from,
+                date_to=date_to,
+            )
+            success_message = f"Конверсия за период «{period_title}» обновлена."
+        else:
+            raise ValueError(f"Неизвестный режим сбора: {mode}")
+
+        merge_period_in_cache(period_key, period_payload)
         set_refresh_state(
             False,
+            mode=mode,
             period_key=period_key,
             period_title=period_title,
             percent=100,
-            message=f"Данные за период «{period_title}» обновлены.",
+            message=success_message,
         )
     except Exception as exc:
         set_refresh_state(
             False,
+            mode=mode,
             period_key=period_key,
             period_title=period_title,
             percent=0,
@@ -225,39 +288,44 @@ def rebuild_period_in_background(period_key, date_from, date_to):
         )
 
 
+def start_refresh(mode):
+    state = get_refresh_state()
+    if state["running"]:
+        return redirect(url_for("index"))
+
+    date_from, date_to, error = parse_refresh_dates()
+    if error:
+        dashboard = load_dashboard_cache()
+        dashboard["error"] = error
+        return render_template("index.html", dashboard=attach_refresh_state(dashboard)), 400
+
+    Thread(
+        target=rebuild_in_background,
+        args=(mode, CUSTOM_PERIOD_KEY, date_from, date_to),
+        daemon=True,
+    ).start()
+    return redirect(url_for("index"))
+
+
 @app.route("/")
 def index():
     dashboard = load_dashboard_cache()
     return render_template("index.html", dashboard=attach_refresh_state(dashboard))
 
 
+@app.route("/refresh/activity", methods=["POST"])
+def refresh_activity():
+    return start_refresh("activity")
+
+
+@app.route("/refresh/conversion", methods=["POST"])
+def refresh_conversion():
+    return start_refresh("conversion")
+
+
 @app.route("/refresh", methods=["POST"])
 def refresh():
-    state = get_refresh_state()
-    if state["running"]:
-        return redirect(url_for("index"))
-
-    date_from = request.form.get("date_from", "").strip()
-    date_to = request.form.get("date_to", "").strip()
-    if not date_from or not date_to:
-        dashboard = load_dashboard_cache()
-        dashboard["error"] = "Выберите дату начала и дату окончания"
-        return render_template("index.html", dashboard=attach_refresh_state(dashboard)), 400
-
-    try:
-        datetime.strptime(date_from, "%Y-%m-%d")
-        datetime.strptime(date_to, "%Y-%m-%d")
-    except ValueError:
-        dashboard = load_dashboard_cache()
-        dashboard["error"] = "Некорректный формат даты"
-        return render_template("index.html", dashboard=attach_refresh_state(dashboard)), 400
-
-    Thread(
-        target=rebuild_period_in_background,
-        args=(CUSTOM_PERIOD_KEY, date_from, date_to),
-        daemon=True,
-    ).start()
-    return redirect(url_for("index"))
+    return start_refresh("activity")
 
 
 @app.route("/status")

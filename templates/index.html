@@ -121,9 +121,23 @@
       cursor: pointer;
     }
 
+    .actions button.primary {
+      border-color: rgba(56, 189, 248, 0.55);
+      background: rgba(56, 189, 248, 0.14);
+      color: #bae6fd;
+    }
+
     .actions button:disabled {
       cursor: not-allowed;
       opacity: 0.45;
+    }
+
+    .actions-hint {
+      flex-basis: 100%;
+      margin: 0;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.45;
     }
 
     .progress-card {
@@ -659,7 +673,7 @@
       </div>
     </header>
 
-    <form class="actions" action="{{ url_for('refresh') }}" method="post">
+    <form class="actions" method="post">
       <label class="field">
         Дата начала
         <input type="date" name="date_from" value="{{ dashboard.selected.date_from }}" required>
@@ -668,13 +682,33 @@
         Дата окончания
         <input type="date" name="date_to" value="{{ dashboard.selected.date_to }}" required>
       </label>
-      <button type="submit" {% if dashboard.refresh.running %}disabled{% endif %}>
-        {% if dashboard.refresh.running %}
-          Идет сбор...
+      <button
+        type="submit"
+        class="primary"
+        formaction="{{ url_for('refresh_activity') }}"
+        {% if dashboard.refresh.running %}disabled{% endif %}
+      >
+        {% if dashboard.refresh.running and dashboard.refresh.mode == 'activity' %}
+          Сбор активности...
         {% else %}
-          Собрать данные
+          Собрать активность
         {% endif %}
       </button>
+      <button
+        type="submit"
+        formaction="{{ url_for('refresh_conversion') }}"
+        {% if dashboard.refresh.running %}disabled{% endif %}
+      >
+        {% if dashboard.refresh.running and dashboard.refresh.mode == 'conversion' %}
+          Сбор конверсии...
+        {% else %}
+          Собрать конверсию
+        {% endif %}
+      </button>
+      <p class="actions-hint">
+        Активность — события и теплокарты (дольше). Конверсия — только сделки, обычно за 10–60 секунд.
+        Данные по каждой вкладке сохраняются отдельно и не перезаписывают друг друга.
+      </p>
     </form>
 
     <nav class="tabs" aria-label="Разделы отчёта">
