@@ -1362,11 +1362,10 @@
 
       if (periodHint) {
         if (days > ACTIVITY_SLOW_DAYS) {
-          const estMin = Math.max(30, Math.round(days * 0.4));
           periodHint.hidden = false;
           periodHint.textContent =
-            `Период ${days} дн. — активность соберётся, но это займёт примерно ${estMin}–${estMin + 30} мин. ` +
-            "Сравнение с прошлым периодом и задачи будут отключены.";
+            `Период ${days} дн. — обычно несколько минут, как раньше. ` +
+            "Сравнение с прошлым периодом и задачи отключены (лимит amoCRM).";
         } else {
           periodHint.hidden = true;
           periodHint.textContent = "";

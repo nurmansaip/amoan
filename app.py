@@ -29,7 +29,7 @@ BASE_DIR = Path(__file__).resolve().parent
 CACHE_PATH = Path(getenv("CACHE_PATH", "") or BASE_DIR / "dashboard_cache.json")
 APP_USERNAME = getenv("APP_USERNAME", "").strip()
 APP_PASSWORD = getenv("APP_PASSWORD", "").strip()
-APP_VERSION = getenv("APP_VERSION", "ui-v10-activity-long-2026-06-11")
+APP_VERSION = getenv("APP_VERSION", "ui-v11-activity-fast-2026-06-11")
 REFRESH_LOCK = Lock()
 REFRESH_STATE = {
     "running": False,
@@ -47,7 +47,7 @@ REFRESH_TIMEOUT_SECONDS = 40 * 60
 
 def refresh_timeout_seconds(mode: str, period_days: int = 0) -> int:
     if mode == "activity" and period_days > 93:
-        return max(90 * 60, period_days * 60)
+        return max(60 * 60, period_days * 30)
     return REFRESH_TIMEOUT_SECONDS
 
 

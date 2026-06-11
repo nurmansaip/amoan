@@ -1341,11 +1341,21 @@ def build_activity_period_data(
     client_for_events = AmoCRMClient()
 
     if period_days > PREVIOUS_PERIOD_MAX_DAYS:
-        events = fetch_events_for_period(
+        def on_events_page(page: int, events_count: int) -> None:
+            if not progress_callback:
+                return
+            percent = min(69, 15 + min(54, page * 2))
+            progress_callback(
+                percent,
+                f"События: страница {page}, загружено {events_count}",
+            )
+
+        events = fetch_events(
             client_for_events,
-            period,
+            period.started_ts,
+            period.ended_ts,
             user_ids,
-            progress_callback=progress_callback,
+            progress_callback=on_events_page,
         )
         previous_events = []
         activity_warnings.append(
