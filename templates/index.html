@@ -826,8 +826,7 @@
         {% endif %}
       </button>
       <p class="actions-hint">
-        Конверсия — <strong>«Собрать конверсию»</strong> (воронка «Новые клиенты»). Активность за период &gt; 3 мес. может идти долго;
-        сравнение с прошлым периодом и просрочки задач для длинных диапазонов отключаются автоматически.
+        <strong>Активность</strong> — максимум <strong>3 месяца</strong>. Для полугода/года только <strong>«Собрать конверсию»</strong>.
       </p>
     </form>
 
@@ -864,6 +863,13 @@
       <div class="progress-bar">
         <div id="progress-fill" class="progress-fill" style="width: {{ dashboard.refresh.percent }}%;"></div>
       </div>
+      {% if dashboard.refresh.running %}
+        <form action="{{ url_for('refresh_cancel') }}" method="post" style="margin-top: 10px;">
+          <button type="submit" style="border:1px solid var(--border);border-radius:8px;padding:6px 10px;background:var(--card-light);color:var(--text);cursor:pointer;">
+            Остановить сбор
+          </button>
+        </form>
+      {% endif %}
     </div>
 
     {% if dashboard.refresh.message %}

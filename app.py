@@ -1,4 +1,5 @@
 import json
+import time
 from copy import deepcopy
 from datetime import datetime
 from os import getenv
@@ -10,11 +11,14 @@ from dotenv import load_dotenv
 from flask import Flask, Response, jsonify, redirect, render_template, request, url_for
 
 from analytics import (
+    ACTIVITY_MAX_PERIOD_DAYS,
     CUSTOM_PERIOD_KEY,
     build_activity_period_data,
     build_conversion_period_data,
+    build_custom_period,
     empty_dashboard,
     load_group_users,
+    period_length_days,
 )
 from amo_client import AmoCRMClient
 
@@ -25,7 +29,7 @@ BASE_DIR = Path(__file__).resolve().parent
 CACHE_PATH = Path(getenv("CACHE_PATH", "") or BASE_DIR / "dashboard_cache.json")
 APP_USERNAME = getenv("APP_USERNAME", "").strip()
 APP_PASSWORD = getenv("APP_PASSWORD", "").strip()
-APP_VERSION = getenv("APP_VERSION", "ui-v8-fix-504-tasks-2026-06-11")
+APP_VERSION = getenv("APP_VERSION", "ui-v8-activity-limit-2026-06-11")
 REFRESH_LOCK = Lock()
 REFRESH_STATE = {
     "running": False,
@@ -35,7 +39,9 @@ REFRESH_STATE = {
     "percent": 0,
     "message": "",
     "error": "",
+    "started_at": 0,
 }
+REFRESH_TIMEOUT_SECONDS = 40 * 60
 
 
 def is_auth_enabled():
@@ -161,11 +167,36 @@ def set_refresh_state(
         REFRESH_STATE["percent"] = percent
         REFRESH_STATE["message"] = message
         REFRESH_STATE["error"] = error
+        if running:
+            REFRESH_STATE["started_at"] = int(time.time())
+        else:
+            REFRESH_STATE["started_at"] = 0
 
 
 def get_refresh_state():
     with REFRESH_LOCK:
-        return deepcopy(REFRESH_STATE)
+        state = deepcopy(REFRESH_STATE)
+        if state["running"] and not state.get("started_at"):
+            REFRESH_STATE["running"] = False
+            REFRESH_STATE["message"] = (
+                "Зависший сбор сброшен. Для периода больше 3 месяцев используйте «Собрать конверсию»."
+            )
+            REFRESH_STATE["error"] = REFRESH_STATE["message"]
+            state = deepcopy(REFRESH_STATE)
+        elif state["running"] and state.get("started_at"):
+            elapsed = int(time.time()) - int(state["started_at"])
+            if elapsed > REFRESH_TIMEOUT_SECONDS:
+                REFRESH_STATE["running"] = False
+                REFRESH_STATE["error"] = (
+                    "Сбор остановлен: превышен лимит 40 минут. "
+                    "Для периода больше 3 месяцев используйте «Собрать конверсию»."
+                )
+                REFRESH_STATE["message"] = REFRESH_STATE["error"]
+                REFRESH_STATE["started_at"] = 0
+                state = deepcopy(REFRESH_STATE)
+            else:
+                state["elapsed_sec"] = elapsed
+        return state
 
 
 def attach_refresh_state(dashboard):
@@ -333,6 +364,17 @@ def start_refresh(mode):
         dashboard["error"] = error
         return render_template("index.html", dashboard=attach_refresh_state(dashboard)), 400
 
+    if mode == "activity":
+        period = build_custom_period(date_from, date_to)
+        days = period_length_days(period)
+        if days > ACTIVITY_MAX_PERIOD_DAYS:
+            dashboard = ensure_group_managers(load_dashboard_cache())
+            dashboard["error"] = (
+                f"Активность за {days} дн. не собирается (максимум {ACTIVITY_MAX_PERIOD_DAYS} дн.). "
+                "Для полугода и года нажмите «Собрать конверсию»."
+            )
+            return render_template("index.html", dashboard=attach_refresh_state(dashboard)), 400
+
     conversion_manager_ids = None
     if mode == "conversion":
         conversion_manager_ids = parse_conversion_manager_ids()
@@ -373,6 +415,15 @@ def refresh():
 @app.route("/status")
 def status():
     return jsonify(get_refresh_state())
+
+
+@app.route("/refresh/cancel", methods=["POST"])
+def refresh_cancel():
+    set_refresh_state(
+        False,
+        message="Сбор данных остановлен вручную.",
+    )
+    return redirect(url_for("index"))
 
 
 @app.route("/health")

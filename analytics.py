@@ -71,6 +71,7 @@ EVENTS_PAGE_LIMIT = 250
 LEADS_PAGE_LIMIT = 250
 TASKS_MAX_PERIOD_DAYS = 93
 PREVIOUS_PERIOD_MAX_DAYS = 93
+ACTIVITY_MAX_PERIOD_DAYS = 93
 METRIC_COLUMNS = [
     "Действия в amoCRM",
     "Звонки",
@@ -1182,6 +1183,67 @@ def empty_dashboard() -> dict[str, Any]:
     }
 
 
+def period_length_days(period: Period) -> int:
+    return max(1, (period.ended_at.date() - period.started_at.date()).days + 1)
+
+
+def iter_period_month_chunks(period: Period) -> list[tuple[int, int, str]]:
+    chunks: list[tuple[int, int, str]] = []
+    tz = period.started_at.tzinfo or app_timezone()
+    cursor = period.started_at
+
+    while cursor <= period.ended_at:
+        if cursor.month == 12:
+            next_month = datetime(cursor.year + 1, 1, 1, tzinfo=tz)
+        else:
+            next_month = datetime(cursor.year, cursor.month + 1, 1, tzinfo=tz)
+        chunk_end = min(next_month - timedelta(seconds=1), period.ended_at)
+        label = cursor.strftime("%m.%Y")
+        chunks.append((int(cursor.timestamp()), int(chunk_end.timestamp()), label))
+        cursor = chunk_end + timedelta(seconds=1)
+
+    return chunks
+
+
+def fetch_events_for_period(
+    client: AmoCRMClient,
+    period: Period,
+    user_ids: list[int],
+    progress_callback: Optional[Callable[[int, str], None]] = None,
+) -> list[dict[str, Any]]:
+    period_days = period_length_days(period)
+    chunks = iter_period_month_chunks(period) if period_days > 31 else [
+        (period.started_ts, period.ended_ts, period.title)
+    ]
+    events: list[dict[str, Any]] = []
+
+    for index, (started_ts, ended_ts, label) in enumerate(chunks, start=1):
+        if progress_callback:
+            percent = 15 + int(55 * (index - 1) / max(len(chunks), 1))
+            progress_callback(percent, f"События · {label} ({index}/{len(chunks)})...")
+
+        def on_page(page: int, events_count: int, chunk_label: str = label) -> None:
+            if not progress_callback:
+                return
+            chunk_percent = 15 + int(55 * index / max(len(chunks), 1))
+            progress_callback(
+                min(70, chunk_percent),
+                f"События · {chunk_label}: стр. {page}, загружено {events_count}",
+            )
+
+        events.extend(
+            fetch_events(
+                client,
+                started_ts,
+                ended_ts,
+                user_ids,
+                progress_callback=on_page,
+            )
+        )
+
+    return events
+
+
 def resolve_period(
     period_key: str,
     date_from: Optional[str] = None,
@@ -1275,17 +1337,15 @@ def build_activity_period_data(
     user_ids = list(group_users.keys())
     previous_period = build_previous_period(period)
     activity_warnings: list[str] = []
-    period_days = max(1, (period.ended_at.date() - period.started_at.date()).days + 1)
+    period_days = period_length_days(period)
+    client_for_events = AmoCRMClient()
 
     if period_days > PREVIOUS_PERIOD_MAX_DAYS:
-        if progress_callback:
-            progress_callback(15, "Загружаем события за выбранный период...")
-        client_for_events = AmoCRMClient()
-        events = fetch_events(
+        events = fetch_events_for_period(
             client_for_events,
-            period.started_ts,
-            period.ended_ts,
+            period,
             user_ids,
+            progress_callback=progress_callback,
         )
         previous_events = []
         activity_warnings.append(
