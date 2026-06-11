@@ -25,7 +25,7 @@ BASE_DIR = Path(__file__).resolve().parent
 CACHE_PATH = Path(getenv("CACHE_PATH", "") or BASE_DIR / "dashboard_cache.json")
 APP_USERNAME = getenv("APP_USERNAME", "").strip()
 APP_PASSWORD = getenv("APP_PASSWORD", "").strip()
-APP_VERSION = getenv("APP_VERSION", "ui-v8-new-clients-conversion-2026-06-02")
+APP_VERSION = getenv("APP_VERSION", "ui-v8-fix-conversion-managers-2026-06-02")
 REFRESH_LOCK = Lock()
 REFRESH_STATE = {
     "running": False,

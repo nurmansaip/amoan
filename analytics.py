@@ -468,11 +468,13 @@ def build_conversion_report(
     totals["conversion_pct"] = round(totals["won"] / totals["counted"] * 100, 1) if totals["counted"] else None
     totals["closed_conversion_pct"] = round(totals["won"] / closed_total * 100, 1) if closed_total else None
 
+    rows = [row for row in rows if row["total_leads"] or row["excluded"]]
     rows.sort(key=lambda item: (item["conversion_pct"] is not None, item["conversion_pct"] or 0), reverse=True)
 
     return {
         "totals": totals,
         "rows": rows,
+        "selected_manager_ids": [str(manager_id) for manager_id in group_users],
         "excluded_reasons": [
             {"reason": reason, "count": count}
             for reason, count in sorted(excluded_reason_totals.items(), key=lambda item: item[1], reverse=True)
