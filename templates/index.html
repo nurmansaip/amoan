@@ -826,8 +826,8 @@
         {% endif %}
       </button>
       <p class="actions-hint">
-        Конверсия считается <strong>только по воронке «Новые клиенты»</strong> и выбранным менеджерам.
-        Для полгода/года: быстрый период → отметьте менеджеров → <strong>«Собрать конверсию»</strong> (~1–5 мин).
+        Конверсия — <strong>«Собрать конверсию»</strong> (воронка «Новые клиенты»). Активность за период &gt; 3 мес. может идти долго;
+        сравнение с прошлым периодом и просрочки задач для длинных диапазонов отключаются автоматически.
       </p>
     </form>
 
@@ -891,6 +891,14 @@
             <div class="date-range">Обновлено: {{ period.updated_at }}</div>
           </div>
         </div>
+
+        {% if period.warnings %}
+          <div style="padding: 0 24px 16px;">
+            {% for warning in period.warnings %}
+              <div class="alert info" style="margin-bottom: 8px;">{{ warning }}</div>
+            {% endfor %}
+          </div>
+        {% endif %}
 
         <div class="totals js-filter-totals">
           {% for label, value in period.totals.items() %}

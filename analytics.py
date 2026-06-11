@@ -69,6 +69,8 @@ APPEAL_EVENT_TYPES = (
 CUSTOM_PERIOD_KEY = "custom"
 EVENTS_PAGE_LIMIT = 250
 LEADS_PAGE_LIMIT = 250
+TASKS_MAX_PERIOD_DAYS = 93
+PREVIOUS_PERIOD_MAX_DAYS = 93
 METRIC_COLUMNS = [
     "Действия в amoCRM",
     "Звонки",
@@ -164,30 +166,70 @@ def fetch_tasks(
     started_ts: int,
     ended_ts: int,
     user_ids: list[int],
+    progress_callback: Optional[Callable[[str], None]] = None,
 ) -> list[dict[str, Any]]:
-    tasks = []
-    page = 1
+    """Загружает задачи по одному менеджеру за раз — так amoCRM реже отвечает 504."""
+    tasks: list[dict[str, Any]] = []
 
-    while True:
-        params: list[tuple[str, Any]] = [
-            ("filter[complete_till][from]", started_ts),
-            ("filter[complete_till][to]", ended_ts),
-            ("limit", 250),
-            ("page", page),
-        ]
-        for user_id in user_ids:
-            params.append(("filter[responsible_user_id][]", user_id))
+    for user_id in user_ids:
+        if progress_callback:
+            progress_callback(f"Загружаем задачи менеджера {user_id}...")
 
-        data = client.get("/api/v4/tasks", params=params)
-        page_tasks = data.get("_embedded", {}).get("tasks", [])
-        tasks.extend(page_tasks)
+        page = 1
+        while True:
+            params: list[tuple[str, Any]] = [
+                ("filter[complete_till][from]", started_ts),
+                ("filter[complete_till][to]", ended_ts),
+                ("filter[responsible_user_id][]", user_id),
+                ("limit", 250),
+                ("page", page),
+            ]
 
-        if not page_tasks or not data.get("_links", {}).get("next"):
-            break
+            data = client.get("/api/v4/tasks", params=params)
+            page_tasks = data.get("_embedded", {}).get("tasks", [])
+            tasks.extend(page_tasks)
 
-        page += 1
+            if not page_tasks or not data.get("_links", {}).get("next"):
+                break
+
+            page += 1
 
     return tasks
+
+
+def load_tasks_for_period(
+    client: AmoCRMClient,
+    period: Period,
+    user_ids: list[int],
+    progress_callback: Optional[Callable[[int, str], None]] = None,
+) -> tuple[list[dict[str, Any]], list[str]]:
+    warnings: list[str] = []
+    period_days = max(1, (period.ended_at.date() - period.started_at.date()).days + 1)
+
+    if period_days > TASKS_MAX_PERIOD_DAYS:
+        warnings.append(
+            f"Просроченные задачи не загружались: период {period_days} дн. "
+            f"(лимит {TASKS_MAX_PERIOD_DAYS} дн. — иначе amoCRM отвечает с ошибкой 504)."
+        )
+        return [], warnings
+
+    def on_task_progress(message: str) -> None:
+        if progress_callback:
+            progress_callback(78, message)
+
+    try:
+        tasks = fetch_tasks(
+            client,
+            period.started_ts,
+            period.ended_ts,
+            user_ids,
+            progress_callback=on_task_progress,
+        )
+    except Exception as exc:
+        warnings.append(f"Задачи не загружены: {exc}")
+        return [], warnings
+
+    return tasks, warnings
 
 
 def filter_group_users(users_by_id: dict[int, str]) -> dict[int, str]:
@@ -1232,20 +1274,37 @@ def build_activity_period_data(
 
     user_ids = list(group_users.keys())
     previous_period = build_previous_period(period)
+    activity_warnings: list[str] = []
+    period_days = max(1, (period.ended_at.date() - period.started_at.date()).days + 1)
 
-    if progress_callback:
-        progress_callback(
-            15,
-            "Загружаем события за текущий и предыдущий период (параллельно)...",
+    if period_days > PREVIOUS_PERIOD_MAX_DAYS:
+        if progress_callback:
+            progress_callback(15, "Загружаем события за выбранный период...")
+        client_for_events = AmoCRMClient()
+        events = fetch_events(
+            client_for_events,
+            period.started_ts,
+            period.ended_ts,
+            user_ids,
         )
-
-    events, previous_events = fetch_events_parallel(
-        period.started_ts,
-        period.ended_ts,
-        previous_period.started_ts,
-        previous_period.ended_ts,
-        user_ids,
-    )
+        previous_events = []
+        activity_warnings.append(
+            f"Сравнение с предыдущим периодом отключено: период {period_days} дн. "
+            f"(длиннее {PREVIOUS_PERIOD_MAX_DAYS} дн.)."
+        )
+    else:
+        if progress_callback:
+            progress_callback(
+                15,
+                "Загружаем события за текущий и предыдущий период (параллельно)...",
+            )
+        events, previous_events = fetch_events_parallel(
+            period.started_ts,
+            period.ended_ts,
+            previous_period.started_ts,
+            previous_period.ended_ts,
+            user_ids,
+        )
 
     if progress_callback:
         progress_callback(
@@ -1254,7 +1313,8 @@ def build_activity_period_data(
         )
 
     status_names = fetch_status_names(client)
-    tasks = fetch_tasks(client, period.started_ts, period.ended_ts, user_ids)
+    tasks, task_warnings = load_tasks_for_period(client, period, user_ids, progress_callback)
+    activity_warnings.extend(task_warnings)
 
     report = build_period_report(events, period, group_users)
     previous_report = build_period_report(previous_events, previous_period, group_users)
@@ -1301,6 +1361,7 @@ def build_activity_period_data(
             "risk_anti_rating": risk_anti_rating,
             "funnel": funnel,
             "per_manager_insights": per_manager_insights,
+            "warnings": activity_warnings,
             "updated_at": updated_at,
         },
         "selected": selected_dates_payload(date_from, date_to),

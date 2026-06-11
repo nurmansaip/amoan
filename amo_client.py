@@ -56,31 +56,39 @@ class AmoCRMClient:
     ) -> dict[str, Any]:
         url = endpoint if endpoint.startswith("http") else f"{self.base_url}{endpoint}"
         headers = {"Authorization": f"Bearer {self.tokens['access_token']}"}
+        gateway_retries = 4
 
-        # amoCRM чувствителен к частым запросам, поэтому держим небольшой интервал.
-        time.sleep(self.request_delay)
+        for gateway_attempt in range(gateway_retries):
+            # amoCRM чувствителен к частым запросам, поэтому держим небольшой интервал.
+            time.sleep(self.request_delay)
 
-        response = self._send_with_retries(
-            method,
-            url,
-            headers=headers,
-            params=params,
-        )
+            response = self._send_with_retries(
+                method,
+                url,
+                headers=headers,
+                params=params,
+            )
 
-        if response.status_code == 401 and retry_after_refresh:
-            self._refresh_tokens()
-            return self._request(method, endpoint, params=params, retry_after_refresh=False)
+            if response.status_code == 401 and retry_after_refresh:
+                self._refresh_tokens()
+                return self._request(method, endpoint, params=params, retry_after_refresh=False)
 
-        if response.status_code == 429:
-            retry_after = int(response.headers.get("Retry-After", "1"))
-            time.sleep(retry_after)
-            return self._request(method, endpoint, params=params, retry_after_refresh=retry_after_refresh)
+            if response.status_code == 429:
+                retry_after = int(response.headers.get("Retry-After", "1"))
+                time.sleep(retry_after)
+                return self._request(method, endpoint, params=params, retry_after_refresh=retry_after_refresh)
 
-        self._raise_for_status(response)
-        if not response.content:
-            return {}
+            if response.status_code in {502, 503, 504} and gateway_attempt < gateway_retries - 1:
+                time.sleep(min(3 * (gateway_attempt + 1), 15))
+                continue
 
-        return response.json()
+            self._raise_for_status(response)
+            if not response.content:
+                return {}
+
+            return response.json()
+
+        raise RuntimeError("amoCRM не ответила после нескольких попыток (502/503/504)")
 
     def _send_with_retries(
         self,
