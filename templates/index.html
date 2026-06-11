@@ -163,6 +163,12 @@
       color: #bae6fd;
     }
 
+    .period-hint {
+      flex-basis: 100%;
+      margin: 0;
+      color: #fcd34d;
+    }
+
     .conversion-managers {
       flex-basis: 100%;
       border: 1px solid var(--border);
@@ -828,6 +834,7 @@
       <p class="actions-hint">
         <strong>Активность</strong> — максимум <strong>3 месяца</strong>. Для полугода/года только <strong>«Собрать конверсию»</strong>.
       </p>
+      <p id="period-hint" class="actions-hint period-hint" hidden></p>
     </form>
 
     <nav class="tabs" aria-label="Разделы отчёта">
@@ -1333,20 +1340,74 @@
       return `${year}-${month}-${day}`;
     }
 
+    const ACTIVITY_MAX_DAYS = 93;
+    const refreshRunning = {{ dashboard.refresh.running | tojson }};
+    const dateFromInput = document.getElementById("date-from");
+    const dateToInput = document.getElementById("date-to");
+    const periodHint = document.getElementById("period-hint");
+    const activityButton = document.querySelector('button[formaction*="activity"]');
+    const actionsForm = document.querySelector("form.actions");
+
+    function periodLengthDays() {
+      if (!dateFromInput?.value || !dateToInput?.value) {
+        return 0;
+      }
+      const from = new Date(`${dateFromInput.value}T00:00:00`);
+      const to = new Date(`${dateToInput.value}T00:00:00`);
+      if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) {
+        return 0;
+      }
+      return Math.max(1, Math.round((to - from) / 86400000) + 1);
+    }
+
+    function updatePeriodHints() {
+      const days = periodLengthDays();
+      const tooLong = days > ACTIVITY_MAX_DAYS;
+
+      if (periodHint) {
+        if (tooLong && days > 0) {
+          periodHint.hidden = false;
+          periodHint.textContent =
+            `Выбрано ${days} дн. — «Собрать активность» недоступна. Для этого периода нажмите «Собрать конверсию».`;
+        } else {
+          periodHint.hidden = true;
+          periodHint.textContent = "";
+        }
+      }
+
+      if (activityButton && !refreshRunning) {
+        activityButton.disabled = tooLong;
+      }
+    }
+
     function setPeriodPreset(months) {
-      const dateTo = document.getElementById("date-to");
-      const dateFrom = document.getElementById("date-from");
       const end = new Date();
       const start = new Date();
       start.setMonth(start.getMonth() - months);
-      dateTo.value = formatDateInput(end);
-      dateFrom.value = formatDateInput(start);
+      dateToInput.value = formatDateInput(end);
+      dateFromInput.value = formatDateInput(start);
+      updatePeriodHints();
     }
 
     document.querySelectorAll(".period-presets button[data-months]").forEach((button) => {
       button.addEventListener("click", () => {
         setPeriodPreset(Number(button.dataset.months));
       });
+    });
+
+    dateFromInput?.addEventListener("change", updatePeriodHints);
+    dateToInput?.addEventListener("change", updatePeriodHints);
+    updatePeriodHints();
+
+    actionsForm?.addEventListener("submit", (event) => {
+      const submitter = event.submitter;
+      if (!submitter?.getAttribute("formaction")?.includes("activity")) {
+        return;
+      }
+      if (periodLengthDays() > ACTIVITY_MAX_DAYS) {
+        event.preventDefault();
+        updatePeriodHints();
+      }
     });
 
     function setConversionManagerChecks(checked) {

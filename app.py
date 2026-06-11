@@ -3,6 +3,7 @@ import time
 from copy import deepcopy
 from datetime import datetime
 from os import getenv
+from typing import Optional
 from pathlib import Path
 from secrets import compare_digest
 from threading import Lock, Thread
@@ -29,7 +30,7 @@ BASE_DIR = Path(__file__).resolve().parent
 CACHE_PATH = Path(getenv("CACHE_PATH", "") or BASE_DIR / "dashboard_cache.json")
 APP_USERNAME = getenv("APP_USERNAME", "").strip()
 APP_PASSWORD = getenv("APP_PASSWORD", "").strip()
-APP_VERSION = getenv("APP_VERSION", "ui-v8-activity-limit-2026-06-11")
+APP_VERSION = getenv("APP_VERSION", "ui-v9-form-dates-fix-2026-06-11")
 REFRESH_LOCK = Lock()
 REFRESH_STATE = {
     "running": False,
@@ -267,6 +268,34 @@ def parse_conversion_manager_ids():
     return manager_ids
 
 
+def format_date_ru(iso_date: str) -> str:
+    return datetime.strptime(iso_date, "%Y-%m-%d").strftime("%d.%m.%Y")
+
+
+def apply_submitted_form_state(
+    dashboard,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    conversion_manager_ids: Optional[list] = None,
+):
+    dashboard.setdefault("selected", {})
+    if date_from:
+        dashboard["selected"]["date_from"] = date_from
+    if date_to:
+        dashboard["selected"]["date_to"] = date_to
+    if conversion_manager_ids is not None:
+        dashboard["selected"]["conversion_manager_ids"] = [
+            str(manager_id) for manager_id in conversion_manager_ids
+        ]
+    return dashboard
+
+
+def stash_form_selection(date_from: str, date_to: str, conversion_manager_ids: Optional[list] = None):
+    dashboard = load_dashboard_cache()
+    apply_submitted_form_state(dashboard, date_from, date_to, conversion_manager_ids)
+    save_dashboard_cache(dashboard)
+
+
 def ensure_group_managers(dashboard):
     if dashboard.get("group_managers"):
         return dashboard
@@ -359,8 +388,16 @@ def start_refresh(mode):
         return redirect(url_for("index"))
 
     date_from, date_to, error = parse_refresh_dates()
+    conversion_manager_ids = parse_conversion_manager_ids() if mode == "conversion" else None
+
     if error:
         dashboard = ensure_group_managers(load_dashboard_cache())
+        apply_submitted_form_state(
+            dashboard,
+            date_from,
+            date_to,
+            conversion_manager_ids,
+        )
         dashboard["error"] = error
         return render_template("index.html", dashboard=attach_refresh_state(dashboard)), 400
 
@@ -369,19 +406,22 @@ def start_refresh(mode):
         days = period_length_days(period)
         if days > ACTIVITY_MAX_PERIOD_DAYS:
             dashboard = ensure_group_managers(load_dashboard_cache())
+            apply_submitted_form_state(dashboard, date_from, date_to, conversion_manager_ids)
             dashboard["error"] = (
-                f"Активность за {days} дн. не собирается (максимум {ACTIVITY_MAX_PERIOD_DAYS} дн.). "
-                "Для полугода и года нажмите «Собрать конверсию»."
+                f"Период {format_date_ru(date_from)} — {format_date_ru(date_to)} ({days} дн.) "
+                f"слишком длинный для активности (лимит {ACTIVITY_MAX_PERIOD_DAYS} дн.). "
+                "Нажмите «Собрать конверсию» — для полугода и года нужна она, не активность."
             )
             return render_template("index.html", dashboard=attach_refresh_state(dashboard)), 400
 
-    conversion_manager_ids = None
     if mode == "conversion":
-        conversion_manager_ids = parse_conversion_manager_ids()
         if not conversion_manager_ids:
             dashboard = ensure_group_managers(load_dashboard_cache())
+            apply_submitted_form_state(dashboard, date_from, date_to, conversion_manager_ids)
             dashboard["error"] = "Выберите хотя бы одного менеджера для конверсии"
             return render_template("index.html", dashboard=attach_refresh_state(dashboard)), 400
+
+    stash_form_selection(date_from, date_to, conversion_manager_ids)
 
     Thread(
         target=rebuild_in_background,
