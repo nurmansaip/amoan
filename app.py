@@ -14,7 +14,9 @@ from analytics import (
     build_activity_period_data,
     build_conversion_period_data,
     empty_dashboard,
+    load_group_users,
 )
+from amo_client import AmoCRMClient
 
 
 load_dotenv()
@@ -23,7 +25,7 @@ BASE_DIR = Path(__file__).resolve().parent
 CACHE_PATH = Path(getenv("CACHE_PATH", "") or BASE_DIR / "dashboard_cache.json")
 APP_USERNAME = getenv("APP_USERNAME", "").strip()
 APP_PASSWORD = getenv("APP_PASSWORD", "").strip()
-APP_VERSION = getenv("APP_VERSION", "ui-v7-period-presets-2026-06-02")
+APP_VERSION = getenv("APP_VERSION", "ui-v8-new-clients-conversion-2026-06-02")
 REFRESH_LOCK = Lock()
 REFRESH_STATE = {
     "running": False,
@@ -98,8 +100,10 @@ def save_dashboard_cache(dashboard):
 def normalize_dashboard(dashboard):
     normalized = deepcopy(empty_dashboard())
     normalized["group_users_count"] = dashboard.get("group_users_count", 0)
+    normalized["group_managers"] = dashboard.get("group_managers", [])
     normalized["updated_at"] = dashboard.get("updated_at", "-")
     normalized["selected"] = dashboard.get("selected", normalized["selected"])
+    normalized["selected"].setdefault("conversion_manager_ids", [])
 
     existing_by_key = {
         period.get("key"): period
@@ -203,6 +207,8 @@ def merge_period_in_cache(period_key, period_payload):
         datetime.now().strftime("%d.%m.%Y %H:%M:%S"),
     )
     dashboard["selected"] = period_payload.get("selected", dashboard.get("selected", {}))
+    if period_payload.get("group_managers"):
+        dashboard["group_managers"] = period_payload["group_managers"]
     save_dashboard_cache(dashboard)
 
 
@@ -221,7 +227,34 @@ def parse_refresh_dates():
     return date_from, date_to, ""
 
 
-def rebuild_in_background(mode, period_key, date_from, date_to):
+def parse_conversion_manager_ids():
+    manager_ids = []
+    for value in request.form.getlist("conversion_manager_ids"):
+        value = value.strip()
+        if value.isdigit():
+            manager_ids.append(int(value))
+    return manager_ids
+
+
+def ensure_group_managers(dashboard):
+    if dashboard.get("group_managers"):
+        return dashboard
+
+    try:
+        client = AmoCRMClient()
+        group_users = load_group_users(client)
+        dashboard["group_managers"] = [
+            {"id": manager_id, "name": manager_name}
+            for manager_id, manager_name in sorted(group_users.items(), key=lambda item: item[1])
+        ]
+        dashboard["group_users_count"] = max(dashboard.get("group_users_count", 0), len(group_users))
+    except Exception:
+        dashboard["group_managers"] = []
+
+    return dashboard
+
+
+def rebuild_in_background(mode, period_key, date_from, date_to, conversion_manager_ids=None):
     period_title = f"{date_from} - {date_to}"
     mode_labels = {
         "activity": "активности",
@@ -262,6 +295,7 @@ def rebuild_in_background(mode, period_key, date_from, date_to):
                 progress_callback=on_progress,
                 date_from=date_from,
                 date_to=date_to,
+                manager_ids=conversion_manager_ids,
             )
             success_message = f"Конверсия за период «{period_title}» обновлена."
         else:
@@ -295,13 +329,21 @@ def start_refresh(mode):
 
     date_from, date_to, error = parse_refresh_dates()
     if error:
-        dashboard = load_dashboard_cache()
+        dashboard = ensure_group_managers(load_dashboard_cache())
         dashboard["error"] = error
         return render_template("index.html", dashboard=attach_refresh_state(dashboard)), 400
 
+    conversion_manager_ids = None
+    if mode == "conversion":
+        conversion_manager_ids = parse_conversion_manager_ids()
+        if not conversion_manager_ids:
+            dashboard = ensure_group_managers(load_dashboard_cache())
+            dashboard["error"] = "Выберите хотя бы одного менеджера для конверсии"
+            return render_template("index.html", dashboard=attach_refresh_state(dashboard)), 400
+
     Thread(
         target=rebuild_in_background,
-        args=(mode, CUSTOM_PERIOD_KEY, date_from, date_to),
+        args=(mode, CUSTOM_PERIOD_KEY, date_from, date_to, conversion_manager_ids),
         daemon=True,
     ).start()
     return redirect(url_for("index"))
@@ -309,7 +351,7 @@ def start_refresh(mode):
 
 @app.route("/")
 def index():
-    dashboard = load_dashboard_cache()
+    dashboard = ensure_group_managers(load_dashboard_cache())
     return render_template("index.html", dashboard=attach_refresh_state(dashboard))
 
 

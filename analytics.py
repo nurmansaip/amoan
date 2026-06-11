@@ -30,6 +30,8 @@ GROUP_KEYWORDS = ("shymkent", "шымкент")
 CLOSED_STATUS_IDS = {142, 143}
 WON_STATUS_ID = 142
 LOST_STATUS_ID = 143
+NEW_CLIENTS_PIPELINE_ID = 900352
+NEW_CLIENTS_PIPELINE_NAME = "Новые клиенты"
 REJECTION_REASON_FIELD_ID = 484234
 EXCLUDED_REJECTION_ENUM_IDS = {
     1024018,  # Маркетинг вопросы
@@ -321,12 +323,38 @@ def is_excluded_rejection_lead(lead: dict[str, Any]) -> bool:
     return False
 
 
+def group_managers_payload(group_users: dict[int, str]) -> list[dict[str, Any]]:
+    return [
+        {"id": manager_id, "name": manager_name}
+        for manager_id, manager_name in sorted(group_users.items(), key=lambda item: item[1])
+    ]
+
+
+def resolve_conversion_managers(
+    group_users: dict[int, str],
+    manager_ids: Optional[list[int]] = None,
+) -> dict[int, str]:
+    if not manager_ids:
+        return group_users
+
+    selected = {
+        manager_id: group_users[manager_id]
+        for manager_id in manager_ids
+        if manager_id in group_users
+    }
+    if not selected:
+        raise ValueError("Не выбран ни один менеджер группы Шымкент")
+
+    return selected
+
+
 def fetch_leads(
     client: AmoCRMClient,
     started_ts: int,
     ended_ts: int,
     user_ids: list[int],
     progress_callback=None,
+    pipeline_ids: Optional[list[int]] = None,
 ) -> list[dict[str, Any]]:
     leads: list[dict[str, Any]] = []
     page = 1
@@ -343,6 +371,9 @@ def fetch_leads(
         ]
         for user_id in user_ids:
             params.append(("filter[responsible_user_id][]", user_id))
+        if pipeline_ids:
+            for pipeline_id in pipeline_ids:
+                params.append(("filter[pipeline_id][]", pipeline_id))
 
         data = client.get("/api/v4/leads", params=params)
         page_leads = data.get("_embedded", {}).get("leads", [])
@@ -380,6 +411,9 @@ def build_conversion_report(
     excluded_reason_totals: dict[str, int] = defaultdict(int)
 
     for lead in leads:
+        if int(lead.get("pipeline_id") or 0) != NEW_CLIENTS_PIPELINE_ID:
+            continue
+
         manager_id = int(lead.get("responsible_user_id") or 0)
         if manager_id not in group_users:
             continue
@@ -444,8 +478,12 @@ def build_conversion_report(
             for reason, count in sorted(excluded_reason_totals.items(), key=lambda item: item[1], reverse=True)
         ],
         "excluded_reason_labels": list(EXCLUDED_REJECTION_LABELS),
+        "pipeline_id": NEW_CLIENTS_PIPELINE_ID,
+        "pipeline_name": NEW_CLIENTS_PIPELINE_NAME,
+        "selected_managers": list(group_users.values()),
         "rules": (
-            "Конверсия считается по сделкам менеджеров Шымкента, созданным в выбранном периоде. "
+            f"Конверсия только по воронке «{NEW_CLIENTS_PIPELINE_NAME}». "
+            "Учитываются сделки выбранных менеджеров Шымкента, созданные в периоде. "
             "Исключаются сделки с причинами отказа: "
             + ", ".join(EXCLUDED_REJECTION_LABELS)
             + ". Успех — этап «Успешно реализовано» (142)."
@@ -1091,9 +1129,11 @@ def empty_dashboard() -> dict[str, Any]:
             }
         ],
         "updated_at": "-",
+        "group_managers": [],
         "selected": {
             "date_from": "",
             "date_to": "",
+            "conversion_manager_ids": [],
         },
     }
 
@@ -1123,6 +1163,16 @@ def selected_dates_payload(date_from: Optional[str], date_to: Optional[str]) -> 
         "date_from": date_from or "",
         "date_to": date_to or "",
     }
+
+
+def selected_conversion_payload(
+    date_from: Optional[str],
+    date_to: Optional[str],
+    manager_ids: Optional[list[int]] = None,
+) -> dict[str, Any]:
+    payload = selected_dates_payload(date_from, date_to)
+    payload["conversion_manager_ids"] = [str(manager_id) for manager_id in (manager_ids or [])]
+    return payload
 
 
 def load_group_users(client: AmoCRMClient) -> dict[int, str]:
@@ -1229,6 +1279,7 @@ def build_activity_period_data(
 
     return {
         "group_users_count": len(group_users),
+        "group_managers": group_managers_payload(group_users),
         "period": {
             "key": period_key,
             "title": period.title,
@@ -1259,6 +1310,7 @@ def build_conversion_period_data(
     progress_callback: Optional[Callable[[int, str], None]] = None,
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
+    manager_ids: Optional[list[int]] = None,
 ) -> dict[str, Any]:
     client = AmoCRMClient()
     period = resolve_period(period_key, date_from, date_to)
@@ -1270,7 +1322,8 @@ def build_conversion_period_data(
     if not group_users:
         return empty_group_payload(period_key, period)
 
-    user_ids = list(group_users.keys())
+    selected_users = resolve_conversion_managers(group_users, manager_ids)
+    user_ids = list(selected_users.keys())
 
     def on_leads_page(page: int, leads_count: int) -> None:
         if progress_callback:
@@ -1278,7 +1331,10 @@ def build_conversion_period_data(
             progress_callback(percent, f"Загружены сделки: {leads_count}")
 
     if progress_callback:
-        progress_callback(10, "Загружаем сделки для конверсии...")
+        progress_callback(
+            10,
+            f"Загружаем сделки воронки «{NEW_CLIENTS_PIPELINE_NAME}»...",
+        )
 
     leads = fetch_leads(
         client,
@@ -1286,12 +1342,14 @@ def build_conversion_period_data(
         period.ended_ts,
         user_ids,
         progress_callback=on_leads_page,
+        pipeline_ids=[NEW_CLIENTS_PIPELINE_ID],
     )
 
     if progress_callback:
         progress_callback(90, f"Считаем конверсию по {len(leads)} сделкам...")
 
-    conversion = build_conversion_report(leads, group_users)
+    conversion = build_conversion_report(leads, selected_users)
+    conversion["selected_managers"] = [selected_users[mid] for mid in user_ids]
     updated_at = datetime.now(app_timezone()).strftime("%d.%m.%Y %H:%M:%S")
 
     if progress_callback:
@@ -1299,6 +1357,7 @@ def build_conversion_period_data(
 
     return {
         "group_users_count": len(group_users),
+        "group_managers": group_managers_payload(group_users),
         "period": {
             "key": period_key,
             "title": period.title,
@@ -1306,7 +1365,7 @@ def build_conversion_period_data(
             "conversion": conversion,
             "updated_at": updated_at,
         },
-        "selected": selected_dates_payload(date_from, date_to),
+        "selected": selected_conversion_payload(date_from, date_to, user_ids),
     }
 
 

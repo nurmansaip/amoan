@@ -163,6 +163,113 @@
       color: #bae6fd;
     }
 
+    .conversion-managers {
+      flex-basis: 100%;
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 14px 16px;
+      background: var(--card);
+    }
+
+    .conversion-managers-head {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 10px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .conversion-managers-head button {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 6px 10px;
+      background: var(--card-light);
+      color: var(--text);
+      font-size: 12px;
+      cursor: pointer;
+    }
+
+    .conversion-managers-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 8px 14px;
+    }
+
+    .conversion-managers-grid label {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      color: var(--text);
+      cursor: pointer;
+    }
+
+    .conversion-meta {
+      margin: 0 0 16px;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    .conversion-managers {
+      flex-basis: 100%;
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 14px 16px;
+      background: var(--card);
+    }
+
+    .conversion-managers-head {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 12px;
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    .conversion-managers-actions {
+      display: flex;
+      gap: 8px;
+    }
+
+    .conversion-managers-actions button {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 6px 10px;
+      background: var(--card-light);
+      color: var(--text);
+      font-size: 12px;
+      cursor: pointer;
+    }
+
+    .conversion-managers-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 8px 14px;
+    }
+
+    .conversion-manager-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--text);
+      font-size: 13px;
+      cursor: pointer;
+    }
+
+    .conversion-selected-list {
+      margin: 0 0 16px;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
     .progress-card {
       display: none;
       margin-bottom: 20px;
@@ -712,6 +819,31 @@
         <button type="button" data-months="6">6 мес</button>
         <button type="button" data-months="12">1 год</button>
       </div>
+      <div class="conversion-managers">
+        <div class="conversion-managers-head">
+          <span>Менеджеры для конверсии · только воронка «Новые клиенты»</span>
+          <span class="conversion-managers-actions">
+            <button type="button" id="conv-mgr-all">Выбрать всех</button>
+            <button type="button" id="conv-mgr-none">Снять всех</button>
+          </span>
+        </div>
+        <div class="conversion-managers-grid">
+          {% for mgr in dashboard.group_managers %}
+            <label class="conversion-manager-item">
+              <input
+                type="checkbox"
+                class="conversion-manager-checkbox"
+                name="conversion_manager_ids"
+                value="{{ mgr.id }}"
+                {% if not dashboard.selected.conversion_manager_ids or mgr.id|string in dashboard.selected.conversion_manager_ids %}checked{% endif %}
+              >
+              <span>{{ mgr.name }}</span>
+            </label>
+          {% else %}
+            <span class="hint">Список менеджеров загружается...</span>
+          {% endfor %}
+        </div>
+      </div>
       <button
         type="submit"
         class="primary"
@@ -724,6 +856,31 @@
           Собрать активность
         {% endif %}
       </button>
+      <div class="conversion-managers">
+        <div class="conversion-managers-head">
+          <strong>Менеджеры для конверсии</strong>
+          <span>(только воронка «Новые клиенты»)</span>
+          <button type="button" id="conv-mgr-all">Выбрать всех</button>
+          <button type="button" id="conv-mgr-none">Снять всех</button>
+        </div>
+        <div class="conversion-managers-grid">
+          {% set selected_mgr_ids = dashboard.selected.conversion_manager_ids | default([]) %}
+          {% for mgr in dashboard.group_managers | default([]) %}
+            <label>
+              <input
+                type="checkbox"
+                name="conversion_manager_ids"
+                value="{{ mgr.id }}"
+                class="conversion-manager-cb"
+                {% if not selected_mgr_ids or mgr.id | string in selected_mgr_ids %}checked{% endif %}
+              >
+              {{ mgr.name }}
+            </label>
+          {% else %}
+            <span class="hint">Список менеджеров загружается...</span>
+          {% endfor %}
+        </div>
+      </div>
       <button
         type="submit"
         formaction="{{ url_for('refresh_conversion') }}"
@@ -736,9 +893,8 @@
         {% endif %}
       </button>
       <p class="actions-hint">
-        Для конверсии за <strong>полгода или год</strong> нажмите быстрый период → <strong>«Собрать конверсию»</strong>
-        (ожидание ~3–8 мин, только сделки). «Собрать активность» на длинных периодах не используйте — там события, это очень долго.
-        Вкладки сохраняют данные отдельно.
+        Конверсия считается <strong>только по воронке «Новые клиенты»</strong> и выбранным менеджерам.
+        Для полгода/года: быстрый период → отметьте менеджеров → <strong>«Собрать конверсию»</strong> (~1–5 мин).
       </p>
     </form>
 
@@ -1132,6 +1288,14 @@
           {% set conv_totals = conv.totals | default({}) %}
 
           <div style="padding: 20px 24px;">
+            {% if conv.pipeline_name %}
+              <p class="conversion-meta">
+                <strong>Воронка:</strong> {{ conv.pipeline_name }}
+                {% if conv.selected_managers %}
+                  · <strong>Менеджеры:</strong> {{ conv.selected_managers | join(", ") }}
+                {% endif %}
+              </p>
+            {% endif %}
             <p class="conversion-rules">{{ conv.rules or "Соберите данные за период, чтобы увидеть конверсию по сделкам." }}</p>
 
             <div class="conversion-totals">
@@ -1233,6 +1397,19 @@
       button.addEventListener("click", () => {
         setPeriodPreset(Number(button.dataset.months));
       });
+    });
+
+    function setConversionManagerChecks(checked) {
+      document.querySelectorAll(".conversion-manager-cb").forEach((checkbox) => {
+        checkbox.checked = checked;
+      });
+    }
+
+    document.getElementById("conv-mgr-all")?.addEventListener("click", () => {
+      setConversionManagerChecks(true);
+    });
+    document.getElementById("conv-mgr-none")?.addEventListener("click", () => {
+      setConversionManagerChecks(false);
     });
 
     async function pollStatus() {
