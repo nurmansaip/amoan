@@ -577,6 +577,62 @@
       color: #bae6fd;
     }
 
+    .tabs {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 20px;
+    }
+
+    .tab-btn {
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 11px 18px;
+      background: var(--card-light);
+      color: var(--muted);
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    .tab-btn.active {
+      border-color: rgba(56, 189, 248, 0.55);
+      background: rgba(56, 189, 248, 0.14);
+      color: #bae6fd;
+    }
+
+    .tab-panel[hidden] {
+      display: none;
+    }
+
+    .conversion-rules {
+      margin-bottom: 20px;
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 16px;
+      background: var(--card);
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    .conversion-totals {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+
+    .conversion-totals .metric {
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 14px;
+      background: var(--card);
+    }
+
+    .conversion-highlight {
+      color: #4ade80;
+      font-weight: 700;
+    }
+
     @media (max-width: 1100px) {
       .header,
       .period-header {
@@ -621,6 +677,12 @@
       </button>
     </form>
 
+    <nav class="tabs" aria-label="Разделы отчёта">
+      <button type="button" class="tab-btn active" data-tab="activity">Активность</button>
+      <button type="button" class="tab-btn" data-tab="conversion">Конверсия</button>
+    </nav>
+
+    <div id="panel-activity" class="tab-panel">
     <div class="manager-filter">
       <label>
         Фильтр по менеджеру
@@ -988,6 +1050,101 @@
         <script type="application/json" class="filter-json-per-manager">{{ period.per_manager_insights | default({}) | tojson }}</script>
       </section>
     {% endfor %}
+    </div>
+
+    <div id="panel-conversion" class="tab-panel" hidden>
+      {% for period in dashboard.periods %}
+        <section class="period-card">
+          <div class="period-header">
+            <div>
+              <h2>Конверсия · {{ period.title }}</h2>
+              <div class="date-range">{{ period.date_range }}</div>
+              <div class="date-range">Обновлено: {{ period.updated_at }}</div>
+            </div>
+          </div>
+
+          {% set conv = period.conversion | default({}) %}
+          {% set conv_totals = conv.totals | default({}) %}
+
+          <div style="padding: 20px 24px;">
+            <p class="conversion-rules">{{ conv.rules or "Соберите данные за период, чтобы увидеть конверсию по сделкам." }}</p>
+
+            <div class="conversion-totals">
+              <div class="metric">
+                <span class="metric-value">{{ conv_totals.counted or 0 }}</span>
+                <span class="metric-label">Учитывается сделок</span>
+              </div>
+              <div class="metric">
+                <span class="metric-value">{{ conv_totals.won or 0 }}</span>
+                <span class="metric-label">Успешно</span>
+              </div>
+              <div class="metric">
+                <span class="metric-value">{{ conv_totals.lost or 0 }}</span>
+                <span class="metric-label">Отказ</span>
+              </div>
+              <div class="metric">
+                <span class="metric-value">{{ conv_totals.in_progress or 0 }}</span>
+                <span class="metric-label">В работе</span>
+              </div>
+              <div class="metric">
+                <span class="metric-value conversion-highlight">{% if conv_totals.conversion_pct is not none %}{{ conv_totals.conversion_pct }}%{% else %}—{% endif %}</span>
+                <span class="metric-label">Конверсия</span>
+              </div>
+              <div class="metric">
+                <span class="metric-value">{{ conv_totals.excluded or 0 }}</span>
+                <span class="metric-label">Исключено</span>
+              </div>
+            </div>
+
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Менеджер</th>
+                    <th>Всего</th>
+                    <th>Исключено</th>
+                    <th>Учитывается</th>
+                    <th>Успешно</th>
+                    <th>Отказ</th>
+                    <th>В работе</th>
+                    <th>Конверсия</th>
+                    <th>Конв. закрытых</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for row in conv.rows | default([]) %}
+                    <tr>
+                      <td>{{ row.manager }}</td>
+                      <td>{{ row.total_leads }}</td>
+                      <td>{{ row.excluded }}</td>
+                      <td>{{ row.counted }}</td>
+                      <td>{{ row.won }}</td>
+                      <td>{{ row.lost }}</td>
+                      <td>{{ row.in_progress }}</td>
+                      <td class="conversion-highlight">{% if row.conversion_pct is not none %}{{ row.conversion_pct }}%{% else %}—{% endif %}</td>
+                      <td>{% if row.closed_conversion_pct is not none %}{{ row.closed_conversion_pct }}%{% else %}—{% endif %}</td>
+                    </tr>
+                  {% else %}
+                    <tr>
+                      <td colspan="9">Нет данных. Нажмите «Собрать данные».</td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+
+            {% if conv.excluded_reasons %}
+              <h3 style="margin-top: 24px;">Исключённые сделки по причинам</h3>
+              <ul class="compact-list">
+                {% for item in conv.excluded_reasons %}
+                  <li><span>{{ item.reason }}</span><strong>{{ item.count }}</strong></li>
+                {% endfor %}
+              </ul>
+            {% endif %}
+          </div>
+        </section>
+      {% endfor %}
+    </div>
   </main>
   <script>
     async function pollStatus() {
@@ -1183,15 +1340,24 @@
     if (managerFilter) {
       managerFilter.addEventListener("change", () => {
         const selectedManager = managerFilter.value;
-        document.querySelectorAll("[data-manager-id]").forEach((element) => {
+        document.querySelectorAll("#panel-activity [data-manager-id]").forEach((element) => {
           const isVisible = !selectedManager || element.dataset.managerId === selectedManager;
           element.style.display = isVisible ? "" : "none";
         });
-        document.querySelectorAll(".period-card").forEach((card) => {
+        document.querySelectorAll("#panel-activity .period-card").forEach((card) => {
           applyManagerInsights(card, selectedManager);
         });
       });
     }
+
+    document.querySelectorAll(".tab-btn").forEach((button) => {
+      button.addEventListener("click", () => {
+        const tab = button.dataset.tab;
+        document.querySelectorAll(".tab-btn").forEach((item) => item.classList.toggle("active", item === button));
+        document.getElementById("panel-activity").hidden = tab !== "activity";
+        document.getElementById("panel-conversion").hidden = tab !== "conversion";
+      });
+    });
   </script>
 </body>
 </html>

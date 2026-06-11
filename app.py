@@ -18,7 +18,7 @@ BASE_DIR = Path(__file__).resolve().parent
 CACHE_PATH = Path(getenv("CACHE_PATH", "") or BASE_DIR / "dashboard_cache.json")
 APP_USERNAME = getenv("APP_USERNAME", "").strip()
 APP_PASSWORD = getenv("APP_PASSWORD", "").strip()
-APP_VERSION = getenv("APP_VERSION", "ui-v5-manager-filter-insights-2026-05-15")
+APP_VERSION = getenv("APP_VERSION", "ui-v6-conversion-tab-2026-06-02")
 REFRESH_LOCK = Lock()
 REFRESH_STATE = {
     "running": False,
@@ -116,6 +116,16 @@ def normalize_dashboard(dashboard):
             merged["key"] = period_key
             merged.setdefault("updated_at", dashboard.get("updated_at", "-"))
             merged.setdefault("per_manager_insights", {})
+            merged.setdefault(
+                "conversion",
+                {
+                    "totals": {},
+                    "rows": [],
+                    "excluded_reasons": [],
+                    "excluded_reason_labels": [],
+                    "rules": "",
+                },
+            )
             periods.append(merged)
         else:
             periods.append(period)

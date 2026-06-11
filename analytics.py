@@ -1,3 +1,4 @@
+import re
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime, time, timedelta
@@ -26,6 +27,27 @@ def utc_ts_to_app_local(ts: int) -> datetime:
 
 GROUP_KEYWORDS = ("shymkent", "шымкент")
 CLOSED_STATUS_IDS = {142, 143}
+WON_STATUS_ID = 142
+LOST_STATUS_ID = 143
+REJECTION_REASON_FIELD_ID = 484234
+EXCLUDED_REJECTION_ENUM_IDS = {
+    1024018,  # Маркетинг вопросы
+    1038620,  # ДУБЛИ
+    1024034,  # Ошибка ( не искали зал)
+    1024168,  # По вакансиям
+    1024254,  # Переоформление
+    1024504,  # Invictus Go
+    1038624,  # Нет номер инстаграм
+}
+EXCLUDED_REJECTION_LABELS = (
+    "Маркетинговые вопросы",
+    "Дубли",
+    "Ошибка (не искали зал)",
+    "По вакансиям",
+    "Переоформление",
+    "Invictus GO",
+    "Нет номер инстаграм",
+)
 TRACKED_EVENT_TYPES = (
     "incoming_call",
     "incoming_chat_message",
@@ -242,6 +264,190 @@ def fetch_appeal_events(
         page += 1
 
     return events
+
+
+def normalize_rejection_reason(value: str) -> str:
+    normalized = re.sub(r"\s+", " ", value.lower().strip())
+    return normalized.replace("( ", "(")
+
+
+EXCLUDED_REJECTION_REASONS_NORMALIZED = {
+    normalize_rejection_reason("Маркетинговые вопросы"),
+    normalize_rejection_reason("Маркетинг вопросы"),
+    normalize_rejection_reason("дубли"),
+    normalize_rejection_reason("ДУБЛИ"),
+    normalize_rejection_reason("Ошибка (не искали зал)"),
+    normalize_rejection_reason("Ошибка ( не искали зал)"),
+    normalize_rejection_reason("По вакансиям"),
+    normalize_rejection_reason("По Вакансиям"),
+    normalize_rejection_reason("Переоформление"),
+    normalize_rejection_reason("Invictus GO"),
+    normalize_rejection_reason("Invictus Go"),
+    normalize_rejection_reason("Нет номер инстаграм"),
+}
+
+
+def get_lead_rejection_reason(lead: dict[str, Any]) -> Optional[str]:
+    for field in lead.get("custom_fields_values") or []:
+        if field.get("field_id") == REJECTION_REASON_FIELD_ID:
+            values = field.get("values") or []
+            if values:
+                return str(values[0].get("value") or "").strip() or None
+    return None
+
+
+def get_lead_rejection_enum_id(lead: dict[str, Any]) -> Optional[int]:
+    for field in lead.get("custom_fields_values") or []:
+        if field.get("field_id") == REJECTION_REASON_FIELD_ID:
+            values = field.get("values") or []
+            enum_id = values[0].get("enum_id") if values else None
+            if enum_id is not None:
+                return int(enum_id)
+    return None
+
+
+def is_excluded_rejection_lead(lead: dict[str, Any]) -> bool:
+    enum_id = get_lead_rejection_enum_id(lead)
+    if enum_id in EXCLUDED_REJECTION_ENUM_IDS:
+        return True
+
+    reason = get_lead_rejection_reason(lead)
+    if reason and normalize_rejection_reason(reason) in EXCLUDED_REJECTION_REASONS_NORMALIZED:
+        return True
+
+    return False
+
+
+def fetch_leads(
+    client: AmoCRMClient,
+    started_ts: int,
+    ended_ts: int,
+    user_ids: list[int],
+    progress_callback=None,
+) -> list[dict[str, Any]]:
+    leads: list[dict[str, Any]] = []
+    page = 1
+
+    while True:
+        if progress_callback:
+            progress_callback(page, len(leads))
+
+        params: list[tuple[str, Any]] = [
+            ("filter[created_at][from]", started_ts),
+            ("filter[created_at][to]", ended_ts),
+            ("limit", 250),
+            ("page", page),
+        ]
+        for user_id in user_ids:
+            params.append(("filter[responsible_user_id][]", user_id))
+
+        data = client.get("/api/v4/leads", params=params)
+        page_leads = data.get("_embedded", {}).get("leads", [])
+        leads.extend(page_leads)
+
+        if not page_leads or not data.get("_links", {}).get("next"):
+            break
+
+        page += 1
+
+    return leads
+
+
+def build_conversion_report(
+    leads: list[dict[str, Any]],
+    group_users: dict[int, str],
+) -> dict[str, Any]:
+    manager_rows: dict[int, dict[str, Any]] = {
+        manager_id: {
+            "manager_id": manager_id,
+            "manager": manager_name,
+            "total_leads": 0,
+            "excluded": 0,
+            "counted": 0,
+            "won": 0,
+            "lost": 0,
+            "in_progress": 0,
+            "conversion_pct": None,
+            "closed_conversion_pct": None,
+            "excluded_by_reason": defaultdict(int),
+        }
+        for manager_id, manager_name in group_users.items()
+    }
+
+    excluded_reason_totals: dict[str, int] = defaultdict(int)
+
+    for lead in leads:
+        manager_id = int(lead.get("responsible_user_id") or 0)
+        if manager_id not in group_users:
+            continue
+
+        row = manager_rows[manager_id]
+        row["total_leads"] += 1
+
+        if is_excluded_rejection_lead(lead):
+            row["excluded"] += 1
+            reason = get_lead_rejection_reason(lead) or "Без названия"
+            row["excluded_by_reason"][reason] += 1
+            excluded_reason_totals[reason] += 1
+            continue
+
+        row["counted"] += 1
+        status_id = int(lead.get("status_id") or 0)
+        if status_id == WON_STATUS_ID:
+            row["won"] += 1
+        elif status_id == LOST_STATUS_ID:
+            row["lost"] += 1
+        else:
+            row["in_progress"] += 1
+
+    rows = []
+    totals = {
+        "total_leads": 0,
+        "excluded": 0,
+        "counted": 0,
+        "won": 0,
+        "lost": 0,
+        "in_progress": 0,
+        "conversion_pct": None,
+        "closed_conversion_pct": None,
+    }
+
+    for manager_id in group_users:
+        row = manager_rows[manager_id]
+        closed = row["won"] + row["lost"]
+        row["conversion_pct"] = round(row["won"] / row["counted"] * 100, 1) if row["counted"] else None
+        row["closed_conversion_pct"] = round(row["won"] / closed * 100, 1) if closed else None
+        row["excluded_by_reason"] = dict(
+            sorted(row["excluded_by_reason"].items(), key=lambda item: item[1], reverse=True)
+        )
+        rows.append(row)
+
+        for key in totals:
+            if key.endswith("_pct"):
+                continue
+            totals[key] += row[key]
+
+    closed_total = totals["won"] + totals["lost"]
+    totals["conversion_pct"] = round(totals["won"] / totals["counted"] * 100, 1) if totals["counted"] else None
+    totals["closed_conversion_pct"] = round(totals["won"] / closed_total * 100, 1) if closed_total else None
+
+    rows.sort(key=lambda item: (item["conversion_pct"] is not None, item["conversion_pct"] or 0), reverse=True)
+
+    return {
+        "totals": totals,
+        "rows": rows,
+        "excluded_reasons": [
+            {"reason": reason, "count": count}
+            for reason, count in sorted(excluded_reason_totals.items(), key=lambda item: item[1], reverse=True)
+        ],
+        "excluded_reason_labels": list(EXCLUDED_REJECTION_LABELS),
+        "rules": (
+            "Конверсия считается по сделкам менеджеров Шымкента, созданным в выбранном периоде. "
+            "Исключаются сделки с причинами отказа: "
+            + ", ".join(EXCLUDED_REJECTION_LABELS)
+            + ". Успех — этап «Успешно реализовано» (142)."
+        ),
+    }
 
 
 def get_event_manager_id(event: dict[str, Any]) -> Optional[int]:
@@ -870,6 +1076,13 @@ def empty_dashboard() -> dict[str, Any]:
                 "problem_deals": [],
                 "risk_anti_rating": [],
                 "funnel": [],
+                "conversion": {
+                    "totals": {},
+                    "rows": [],
+                    "excluded_reasons": [],
+                    "excluded_reason_labels": list(EXCLUDED_REJECTION_LABELS),
+                    "rules": "",
+                },
                 "per_manager_insights": {},
                 "updated_at": "-",
             }
@@ -945,6 +1158,20 @@ def build_period_data(
         progress_callback(90, "Загружаем задачи для проверки просрочек")
     tasks = fetch_tasks(client, period.started_ts, period.ended_ts, list(group_users.keys()))
     if progress_callback:
+        progress_callback(92, "Загружаем сделки для конверсии")
+
+    def on_leads_page(page: int, leads_count: int) -> None:
+        if progress_callback:
+            progress_callback(min(93, 92 + page), f"Загружены сделки: {leads_count}")
+
+    leads = fetch_leads(
+        client,
+        period.started_ts,
+        period.ended_ts,
+        list(group_users.keys()),
+        progress_callback=on_leads_page,
+    )
+    if progress_callback:
         progress_callback(94, "Считаем расширенные метрики и риски")
 
     report = build_period_report(events, period, group_users)
@@ -967,6 +1194,7 @@ def build_period_data(
     problem_deals = build_problem_deals(events, group_users)
     risk_anti_rating = build_risk_anti_rating(manager_details)
     funnel = build_funnel(manager_details)
+    conversion = build_conversion_report(leads, group_users)
     per_manager_insights = build_per_manager_insights(
         events, period, group_users, report, previous_report
     )
@@ -998,6 +1226,7 @@ def build_period_data(
             "problem_deals": problem_deals,
             "risk_anti_rating": risk_anti_rating,
             "funnel": funnel,
+            "conversion": conversion,
             "per_manager_insights": per_manager_insights,
             "updated_at": updated_at,
         },
